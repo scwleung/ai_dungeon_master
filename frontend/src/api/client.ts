@@ -46,14 +46,14 @@ export const api = {
     start: (campaignId: string) =>
       request<{ data: Session }>('POST', `/api/campaigns/${campaignId}/sessions`),
     end: (sessionId: string) =>
-      request<{ data: Session }>('PUT', `/api/sessions/${sessionId}/end`),
+      request<{ data: Session }>('PUT', `/api/campaigns/sessions/${sessionId}/end`),
   },
 
   characters: {
     list: (campaignId: string) =>
-      request<{ data: Character[] }>('GET', `/api/campaigns/${campaignId}/characters`),
+      request<{ data: Character[] }>('GET', `/api/${campaignId}/characters`),
     create: (campaignId: string, data: Omit<Character, 'id' | 'campaign_id'>) =>
-      request<{ data: Character }>('POST', `/api/campaigns/${campaignId}/characters`, data),
+      request<{ data: Character }>('POST', `/api/${campaignId}/characters`, data),
     update: (id: string, data: CharacterUpdate) =>
       request<{ data: Character }>('PUT', `/api/characters/${id}`, data),
     delete: (id: string) => request<void>('DELETE', `/api/characters/${id}`),

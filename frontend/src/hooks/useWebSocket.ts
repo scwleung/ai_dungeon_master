@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { getAccessCode } from '../api/client'
 import { useGameStore } from '../store/gameStore'
 import type { WsClientMessage, WsServerMessage } from '../types'
 
@@ -46,6 +47,7 @@ export function useWebSocket(sessionId: string | null) {
     const params = new URLSearchParams({
       player_id: settings.playerId,
       player_name: settings.playerName,
+      access_code: getAccessCode(),
     })
 
     // Use relative path so vite proxy handles it

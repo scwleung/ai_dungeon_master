@@ -25,6 +25,7 @@ from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.auth import require_campaign_access, require_session_access
 from backend.database import get_db
 from backend.models.campaign import (
     Campaign,
@@ -132,6 +133,7 @@ async def update_campaign(
     campaign_id: str,
     payload: CampaignUpdate,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_campaign_access),
 ):
     """Update campaign name and/or description."""
     result = await db.execute(
@@ -164,7 +166,11 @@ async def update_campaign(
 
 
 @router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_campaign(campaign_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_campaign(
+    campaign_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_campaign_access),
+):
     """Delete a campaign and all related characters and sessions."""
     result = await db.execute(
         select(Campaign).where(Campaign.id == campaign_id)
@@ -211,7 +217,11 @@ async def list_sessions(campaign_id: str, db: AsyncSession = Depends(get_db)):
     response_model=SessionResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def start_session(campaign_id: str, db: AsyncSession = Depends(get_db)):
+async def start_session(
+    campaign_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_campaign_access),
+):
     """Start a new session for the given campaign."""
     campaign_result = await db.execute(
         select(Campaign).where(Campaign.id == campaign_id)
@@ -235,7 +245,11 @@ async def start_session(campaign_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/sessions/{session_id}/end", response_model=SessionResponse)
-async def end_session(session_id: str, db: AsyncSession = Depends(get_db)):
+async def end_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_session_access),
+):
     """Mark a session as ended by recording the end timestamp."""
     result = await db.execute(
         select(GameSession).where(GameSession.id == session_id)

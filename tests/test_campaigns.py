@@ -4,7 +4,7 @@ from httpx import AsyncClient
 
 
 # ---------------------------------------------------------------------------
-# Helper
+# Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -15,6 +15,11 @@ async def make_campaign(client: AsyncClient, name="Test", ruleset="dnd5e", descr
     )
     assert r.status_code == 201
     return r.json()
+
+
+def auth(campaign: dict) -> dict:
+    """Return X-Access-Code header dict for a campaign."""
+    return {"X-Access-Code": campaign["access_code"]}
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +70,12 @@ async def test_create_campaign_has_id(client):
     data = await make_campaign(client)
     assert "id" in data
     assert data["id"]
+
+
+async def test_create_campaign_has_access_code(client):
+    data = await make_campaign(client)
+    assert "access_code" in data
+    assert len(data["access_code"]) > 0
 
 
 async def test_create_campaign_default_ruleset(client):
@@ -138,6 +149,7 @@ async def test_update_campaign_name_status_200(client):
     r = await client.put(
         f"/api/campaigns/{campaign['id']}",
         json={"name": "New Name"},
+        headers=auth(campaign),
     )
     assert r.status_code == 200
 
@@ -147,6 +159,7 @@ async def test_update_campaign_name_changed(client):
     r = await client.put(
         f"/api/campaigns/{campaign['id']}",
         json={"name": "New Name"},
+        headers=auth(campaign),
     )
     assert r.json()["name"] == "New Name"
 
@@ -156,6 +169,7 @@ async def test_update_campaign_name_description_unchanged(client):
     r = await client.put(
         f"/api/campaigns/{campaign['id']}",
         json={"name": "New Name"},
+        headers=auth(campaign),
     )
     assert r.json()["description"] == "Keep this"
 
@@ -165,6 +179,7 @@ async def test_update_campaign_description_only(client):
     r = await client.put(
         f"/api/campaigns/{campaign['id']}",
         json={"description": "New Desc"},
+        headers=auth(campaign),
     )
     assert r.json()["name"] == "Keep Name"
     assert r.json()["description"] == "New Desc"
@@ -174,8 +189,19 @@ async def test_update_nonexistent_campaign_returns_404(client):
     r = await client.put(
         "/api/campaigns/nonexistent-id-00000000",
         json={"name": "Irrelevant"},
+        headers={"X-Access-Code": "any"},
     )
     assert r.status_code == 404
+
+
+async def test_update_campaign_wrong_code_returns_403(client):
+    campaign = await make_campaign(client, name="Secret")
+    r = await client.put(
+        f"/api/campaigns/{campaign['id']}",
+        json={"name": "Hacked"},
+        headers={"X-Access-Code": "wrong-code"},
+    )
+    assert r.status_code == 403
 
 
 # ---------------------------------------------------------------------------
@@ -185,20 +211,32 @@ async def test_update_nonexistent_campaign_returns_404(client):
 
 async def test_delete_campaign_status_204(client):
     campaign = await make_campaign(client)
-    r = await client.delete(f"/api/campaigns/{campaign['id']}")
+    r = await client.delete(f"/api/campaigns/{campaign['id']}", headers=auth(campaign))
     assert r.status_code == 204
 
 
 async def test_delete_campaign_then_get_returns_404(client):
     campaign = await make_campaign(client)
-    await client.delete(f"/api/campaigns/{campaign['id']}")
+    await client.delete(f"/api/campaigns/{campaign['id']}", headers=auth(campaign))
     r = await client.get(f"/api/campaigns/{campaign['id']}")
     assert r.status_code == 404
 
 
 async def test_delete_nonexistent_campaign_returns_404(client):
-    r = await client.delete("/api/campaigns/nonexistent-id-00000000")
+    r = await client.delete(
+        "/api/campaigns/nonexistent-id-00000000",
+        headers={"X-Access-Code": "any"},
+    )
     assert r.status_code == 404
+
+
+async def test_delete_campaign_wrong_code_returns_403(client):
+    campaign = await make_campaign(client)
+    r = await client.delete(
+        f"/api/campaigns/{campaign['id']}",
+        headers={"X-Access-Code": "wrong-code"},
+    )
+    assert r.status_code == 403
 
 
 # ---------------------------------------------------------------------------
@@ -233,61 +271,123 @@ async def test_list_campaigns_descending_creation_order(client):
 
 async def test_start_session_status_201(client):
     campaign = await make_campaign(client)
-    r = await client.post(f"/api/campaigns/{campaign['id']}/sessions")
+    r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
     assert r.status_code == 201
 
 
 async def test_start_session_campaign_id_matches(client):
     campaign = await make_campaign(client)
-    r = await client.post(f"/api/campaigns/{campaign['id']}/sessions")
+    r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
     assert r.json()["campaign_id"] == campaign["id"]
 
 
 async def test_start_session_ended_at_is_none(client):
     campaign = await make_campaign(client)
-    r = await client.post(f"/api/campaigns/{campaign['id']}/sessions")
+    r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
     assert r.json()["ended_at"] is None
 
 
 async def test_start_session_messages_is_empty_list(client):
     campaign = await make_campaign(client)
-    r = await client.post(f"/api/campaigns/{campaign['id']}/sessions")
+    r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
     assert r.json()["messages"] == []
 
 
 async def test_start_session_nonexistent_campaign_returns_404(client):
-    r = await client.post("/api/campaigns/nonexistent-id-00000000/sessions")
+    r = await client.post(
+        "/api/campaigns/nonexistent-id-00000000/sessions",
+        headers={"X-Access-Code": "any"},
+    )
     assert r.status_code == 404
+
+
+async def test_start_session_wrong_code_returns_403(client):
+    campaign = await make_campaign(client)
+    r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers={"X-Access-Code": "wrong-code"},
+    )
+    assert r.status_code == 403
 
 
 async def test_end_session_status_200(client):
     campaign = await make_campaign(client)
-    session_r = await client.post(f"/api/campaigns/{campaign['id']}/sessions")
+    session_r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
     session_id = session_r.json()["id"]
-    r = await client.put(f"/api/campaigns/sessions/{session_id}/end")
+    r = await client.put(
+        f"/api/campaigns/sessions/{session_id}/end",
+        headers=auth(campaign),
+    )
     assert r.status_code == 200
 
 
 async def test_end_session_ended_at_is_not_none(client):
     campaign = await make_campaign(client)
-    session_r = await client.post(f"/api/campaigns/{campaign['id']}/sessions")
+    session_r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
     session_id = session_r.json()["id"]
-    r = await client.put(f"/api/campaigns/sessions/{session_id}/end")
+    r = await client.put(
+        f"/api/campaigns/sessions/{session_id}/end",
+        headers=auth(campaign),
+    )
     assert r.json()["ended_at"] is not None
 
 
 async def test_end_session_already_ended_is_idempotent(client):
     campaign = await make_campaign(client)
-    session_r = await client.post(f"/api/campaigns/{campaign['id']}/sessions")
+    session_r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
     session_id = session_r.json()["id"]
-    await client.put(f"/api/campaigns/sessions/{session_id}/end")
-    r = await client.put(f"/api/campaigns/sessions/{session_id}/end")
+    await client.put(
+        f"/api/campaigns/sessions/{session_id}/end",
+        headers=auth(campaign),
+    )
+    r = await client.put(
+        f"/api/campaigns/sessions/{session_id}/end",
+        headers=auth(campaign),
+    )
     assert r.status_code == 200
 
 
 async def test_end_nonexistent_session_returns_404(client):
-    r = await client.put("/api/campaigns/sessions/nonexistent-session-id/end")
+    r = await client.put(
+        "/api/campaigns/sessions/nonexistent-session-id/end",
+        headers={"X-Access-Code": "any"},
+    )
     assert r.status_code == 404
+
+
+async def test_end_session_wrong_code_returns_403(client):
+    campaign = await make_campaign(client)
+    session_r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
+    session_id = session_r.json()["id"]
+    r = await client.put(
+        f"/api/campaigns/sessions/{session_id}/end",
+        headers={"X-Access-Code": "wrong-code"},
+    )
+    assert r.status_code == 403
 
 
 async def test_list_sessions_for_campaign_status_200(client):
@@ -304,17 +404,21 @@ async def test_list_sessions_for_nonexistent_campaign_returns_404(client):
 
 async def test_session_count_increments_after_starting_session(client):
     campaign = await make_campaign(client)
-    await client.post(f"/api/campaigns/{campaign['id']}/sessions")
+    await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
     r = await client.get(f"/api/campaigns/{campaign['id']}")
     assert r.json()["session_count"] == 1
 
 
 async def test_delete_campaign_cascades_to_sessions(client):
     campaign = await make_campaign(client)
-    session_r = await client.post(f"/api/campaigns/{campaign['id']}/sessions")
-    session_id = session_r.json()["id"]
-
-    await client.delete(f"/api/campaigns/{campaign['id']}")
+    await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
+    await client.delete(f"/api/campaigns/{campaign['id']}", headers=auth(campaign))
 
     # Sessions for the deleted campaign should 404
     r = await client.get(f"/api/campaigns/{campaign['id']}/sessions")

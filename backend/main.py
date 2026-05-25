@@ -300,6 +300,7 @@ async def websocket_endpoint(
     session_id: str,
     player_id: str = "unknown",
     player_name: str = "Adventurer",
+    access_code: str = "",
 ):
     """
     Main WebSocket endpoint for a game session.
@@ -307,10 +308,12 @@ async def websocket_endpoint(
     Query parameters:
         player_id:   Unique identifier for this player.
         player_name: Display name shown to other players.
+        access_code: Campaign access code; connection is closed with 4403
+                     if the code does not match the session's campaign.
     """
     await session_hub.connect(ws, session_id, player_id)
 
-    # Look up which campaign this session belongs to
+    # Look up which campaign this session belongs to and verify access code
     campaign_id: Optional[str] = None
     async with AsyncSessionLocal() as db:
         session_result = await db.execute(
@@ -319,6 +322,15 @@ async def websocket_endpoint(
         db_session = session_result.scalar_one_or_none()
         if db_session is not None:
             campaign_id = db_session.campaign_id
+            # Verify access code against the campaign when the session exists
+            campaign_result = await db.execute(
+                select(Campaign).where(Campaign.id == campaign_id)
+            )
+            db_campaign = campaign_result.scalar_one_or_none()
+            if db_campaign is not None and db_campaign.access_code != access_code:
+                session_hub.disconnect(ws)
+                await ws.close(code=4403, reason="Invalid access code")
+                return
 
     # Per-connection queue for awaiting player roll results
     # key: roll_request_id, value: asyncio.Queue that receives the result dict

@@ -19,6 +19,7 @@ when constructing response objects.
 """
 
 import json
+import secrets
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -28,6 +29,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
 from pydantic import BaseModel, model_validator
+
+
+def generate_access_code() -> str:
+    """Generate a random 8-character URL-safe access code for a campaign."""
+    return secrets.token_urlsafe(6)
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +53,8 @@ class Campaign(Base):
         created_at: Server-side UTC timestamp set on INSERT.
         world_state: JSON-serialised dict tracking persistent world facts
             (NPC attitudes, quest state, current location, etc.).
+        access_code: Random URL-safe token used to gate write access to
+            this campaign via the ``X-Access-Code`` request header.
         characters: One-to-many relationship to ``Character`` rows.
         sessions: One-to-many relationship to ``Session`` rows.
     """
@@ -59,6 +67,7 @@ class Campaign(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
     world_state: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    access_code: Mapped[str] = mapped_column(String(12), nullable=False, default=generate_access_code)
 
     characters: Mapped[list["Character"]] = relationship(  # type: ignore[name-defined]
         "Character",
@@ -117,6 +126,8 @@ class CampaignResponse(BaseModel):
 
     ``world_state`` is always returned as a parsed ``dict``; ``session_count``
     is derived from the length of the ``sessions`` relationship at read time.
+    ``access_code`` is included so clients can store it for subsequent
+    authenticated requests.
     """
 
     id: str
@@ -125,6 +136,7 @@ class CampaignResponse(BaseModel):
     description: str
     created_at: datetime
     world_state: dict
+    access_code: str
     session_count: int = 0
 
     model_config = {"from_attributes": True}
@@ -150,6 +162,7 @@ class CampaignResponse(BaseModel):
                 "description": obj.description,
                 "created_at": obj.created_at,
                 "world_state": world_state,
+                "access_code": obj.access_code,
                 "session_count": len(sessions),
             }
         # Handle dict

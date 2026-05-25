@@ -1,0 +1,170 @@
+/* =============================================
+   HUD THEME — Tactical Display
+   Dark blue-gray, cyan accents, monospace, techy
+   ============================================= */
+
+body.theme-hud {
+  --bg-primary: #080e18;
+  --bg-secondary: #0d1624;
+  --bg-panel: #0b1320;
+  --bg-input: #07101c;
+  --bg-card: #10182a;
+  --bg-overlay: rgba(4, 8, 16, 0.92);
+
+  --text-primary: #c8e8ff;
+  --text-secondary: #7ab8d8;
+  --text-muted: #4a7898;
+  --text-inverse: #080e18;
+
+  --accent: #00c8e8;
+  --accent-hover: #20e8ff;
+  --accent-danger: #e83030;
+  --accent-danger-hover: #ff4848;
+  --accent-success: #20c870;
+  --accent-success-hover: #38e888;
+  --accent-info: #6080c8;
+
+  --border: #1a2e48;
+  --border-light: #2a4868;
+  --border-focus: #00c8e8;
+
+  --shadow: rgba(0, 0, 20, 0.6);
+  --shadow-lg: rgba(0, 0, 20, 0.85);
+
+  --font-primary: 'Courier New', 'Lucida Console', monospace;
+  --font-mono: 'Courier New', 'Lucida Console', monospace;
+  --font-sans: 'Trebuchet MS', 'Segoe UI', sans-serif;
+
+  --radius: 2px;
+  --radius-lg: 4px;
+  --radius-full: 9999px;
+  --transition: 0.15s ease;
+  --sidebar-width: 320px;
+  --header-height: 56px;
+
+  --hp-high: #20c870;
+  --hp-mid: #d8c020;
+  --hp-low: #e83030;
+  --dice-color: #00c8e8;
+}
+
+/* HUD-specific enhancements */
+body.theme-hud body {
+  font-family: var(--font-primary);
+}
+
+body.theme-hud .card {
+  border-color: var(--border);
+  position: relative;
+  overflow: hidden;
+}
+
+body.theme-hud .card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--accent),
+    transparent
+  );
+  opacity: 0.4;
+}
+
+body.theme-hud .modal-box {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 20px rgba(0, 200, 232, 0.1),
+    0 0 60px rgba(0, 0, 20, 0.8);
+}
+
+/* Scanline effect for immersion */
+body.theme-hud::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  z-index: 9999;
+}
+
+/* Corner brackets on panels */
+body.theme-hud .panel {
+  position: relative;
+  clip-path: polygon(
+    0 8px,
+    8px 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% calc(100% - 8px),
+    calc(100% - 8px) 100%,
+    8px 100%,
+    0 calc(100% - 8px)
+  );
+}
+
+/* Cyan glow on focused inputs */
+body.theme-hud input:focus,
+body.theme-hud textarea:focus,
+body.theme-hud select:focus {
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 8px rgba(0, 200, 232, 0.3);
+}
+
+/* Active player badges get a glow */
+body.theme-hud .badge-accent {
+  color: var(--accent);
+  background: rgba(0, 200, 232, 0.1);
+  border-color: var(--accent);
+  box-shadow: 0 0 6px rgba(0, 200, 232, 0.3);
+}
+
+/* DM messages in HUD look like a terminal readout */
+body.theme-hud .msg-dm {
+  border-left: 2px solid var(--accent);
+  padding-left: var(--space-3);
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  background: rgba(0, 200, 232, 0.03);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+body.theme-hud button.btn-primary {
+  box-shadow: 0 0 8px rgba(0, 200, 232, 0.3);
+}
+
+body.theme-hud button.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 0 16px rgba(0, 200, 232, 0.5);
+}
+
+/* Dividers as data lines */
+body.theme-hud hr,
+body.theme-hud .divider {
+  background: var(--border);
+  height: 1px;
+  border: none;
+  position: relative;
+}
+
+body.theme-hud hr::after,
+body.theme-hud .divider::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 30%;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.5;
+}

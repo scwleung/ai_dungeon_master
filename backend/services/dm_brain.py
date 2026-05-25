@@ -1,0 +1,517 @@
+"""
+Core Claude integration for the AI Dungeon Master application.
+
+This module provides the DungeonMaster class which wraps the Anthropic API
+with streaming support, tool use, and vision capabilities for dice detection.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import AsyncGenerator, Callable, Optional
+
+import anthropic
+from anthropic import AsyncAnthropic
+
+from backend.models.roll_result import roll_dice
+
+
+# ---------------------------------------------------------------------------
+# Ruleset descriptions
+# ---------------------------------------------------------------------------
+
+RULESET_DESCRIPTIONS: dict[str, str] = {
+    "dnd5e": (
+        "D&D 5th Edition. Use ability checks (DC-based), advantage/disadvantage, "
+        "spell slots, action economy (action/bonus action/reaction). Common DCs: "
+        "Easy 10, Medium 15, Hard 20, Very Hard 25."
+    ),
+    "pathfinder2e": (
+        "Pathfinder 2nd Edition. Use the three-action economy, degrees of success "
+        "(critical success/success/failure/critical failure), proficiency ranks. "
+        "Emphasize tactical positioning."
+    ),
+    "freeform": (
+        "Narrative-first freeform RPG. Rules are flexible suggestions. Focus on "
+        "story, character development, and dramatic moments. Use dice only when "
+        "tension demands it."
+    ),
+}
+
+# ---------------------------------------------------------------------------
+# System prompt template
+# ---------------------------------------------------------------------------
+
+DM_SYSTEM_TEMPLATE = """You are an expert, immersive Dungeon Master running a {ruleset_name} campaign.
+
+RULESET: {ruleset_description}
+
+CAMPAIGN: {campaign_name}
+{campaign_description}
+
+WORLD STATE:
+{world_state}
+
+ACTIVE CHARACTERS:
+{characters_summary}
+
+INSTRUCTIONS:
+- Narrate vividly in second person ("You see...", "Before you...") or third person for dramatic effect
+- React authentically to player choices — make their decisions matter
+- Use player character names, backstories, and traits naturally
+- Keep scenes moving — end each response with a clear situation requiring player input
+- When players roll dice, weave the result dramatically into the narrative regardless of success or failure
+- Use your tools to track game state — keep the world consistent
+- Voice NPCs distinctly — give them personality, motivations, quirks
+- Balance combat, exploration, and roleplay
+- For D&D 5e/PF2e: call `request_player_roll` when a check is needed, then wait for the result
+- Responses should be 1-4 paragraphs — vivid but not exhausting
+- Never break character or mention that you are an AI"""
+
+# ---------------------------------------------------------------------------
+# Tool definitions
+# ---------------------------------------------------------------------------
+
+TOOLS: list[dict] = [
+    {
+        "name": "roll_dice",
+        "description": (
+            "Roll dice for secret checks, NPC actions, random tables, or any roll "
+            "the DM makes"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dice": {
+                    "type": "string",
+                    "description": "Dice notation: '1d20', '2d6+3', '4d8'",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "What this roll determines",
+                },
+                "secret": {
+                    "type": "boolean",
+                    "description": "True if players should not see this roll",
+                    "default": False,
+                },
+            },
+            "required": ["dice", "reason"],
+        },
+    },
+    {
+        "name": "request_player_roll",
+        "description": (
+            "Ask a specific player to roll dice (triggers the dice camera UI or manual input)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "player_id": {
+                    "type": "string",
+                    "description": "ID of the player who should roll",
+                },
+                "dice": {
+                    "type": "string",
+                    "description": "Dice notation: '1d20', '1d20+3'",
+                },
+                "skill": {
+                    "type": "string",
+                    "description": (
+                        "Skill or ability being checked, e.g. 'Perception', "
+                        "'Stealth', 'Strength saving throw'"
+                    ),
+                },
+                "dc": {
+                    "type": "integer",
+                    "description": "Difficulty class (optional — omit to keep secret)",
+                },
+            },
+            "required": ["player_id", "dice", "skill"],
+        },
+    },
+    {
+        "name": "update_character",
+        "description": "Update a character's HP, inventory, conditions, XP, or notes",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "character_id": {
+                    "type": "string",
+                    "description": "Character UUID",
+                },
+                "hp_delta": {
+                    "type": "integer",
+                    "description": "Change in HP (positive = healing, negative = damage)",
+                },
+                "add_items": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Items to add to inventory",
+                },
+                "remove_items": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Items to remove from inventory",
+                },
+                "add_conditions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Conditions to add (e.g. 'Poisoned', 'Prone')",
+                },
+                "remove_conditions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Conditions to remove",
+                },
+                "xp_delta": {
+                    "type": "integer",
+                    "description": "Experience points gained",
+                },
+                "notes_append": {
+                    "type": "string",
+                    "description": "Text to append to character notes",
+                },
+            },
+            "required": ["character_id"],
+        },
+    },
+    {
+        "name": "update_world_state",
+        "description": (
+            "Record important world events, NPC attitudes, quest progress, location changes"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "updates": {
+                    "type": "object",
+                    "description": (
+                        "Key-value pairs to set in world state, e.g. "
+                        "{'current_location': 'The Rusty Flagon tavern', "
+                        "'quest_rescue_miller': 'completed', "
+                        "'npc_innkeeper_attitude': 'friendly'}"
+                    ),
+                },
+            },
+            "required": ["updates"],
+        },
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# DungeonMaster class
+# ---------------------------------------------------------------------------
+
+
+class DungeonMaster:
+    """Wraps AsyncAnthropic to act as a streaming, tool-using Dungeon Master."""
+
+    def __init__(self) -> None:
+        self.client = AsyncAnthropic()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_system_prompt(self, campaign, characters: list) -> str:
+        """Build the system prompt from the campaign data and character list."""
+        ruleset = getattr(campaign, "ruleset", "freeform")
+        ruleset_description = RULESET_DESCRIPTIONS.get(
+            ruleset, RULESET_DESCRIPTIONS["freeform"]
+        )
+        # Friendly display name for the ruleset
+        ruleset_names = {
+            "dnd5e": "D&D 5th Edition",
+            "pathfinder2e": "Pathfinder 2nd Edition",
+            "freeform": "Freeform",
+        }
+        ruleset_name = ruleset_names.get(ruleset, ruleset.upper())
+
+        # Parse world state JSON if it's a string
+        world_state = getattr(campaign, "world_state", "{}")
+        if isinstance(world_state, str):
+            try:
+                world_state_dict = json.loads(world_state)
+            except (json.JSONDecodeError, TypeError):
+                world_state_dict = {}
+        else:
+            world_state_dict = world_state or {}
+
+        if world_state_dict:
+            world_state_text = "\n".join(
+                f"  {k}: {v}" for k, v in world_state_dict.items()
+            )
+        else:
+            world_state_text = "  (No world state recorded yet)"
+
+        return DM_SYSTEM_TEMPLATE.format(
+            ruleset_name=ruleset_name,
+            ruleset_description=ruleset_description,
+            campaign_name=getattr(campaign, "name", "Unknown Campaign"),
+            campaign_description=getattr(campaign, "description", ""),
+            world_state=world_state_text,
+            characters_summary=self._format_characters(characters),
+        )
+
+    def _format_characters(self, characters: list) -> str:
+        """Format character list as readable text for the system prompt."""
+        if not characters:
+            return "  (No characters registered yet)"
+
+        lines: list[str] = []
+        for char in characters:
+            # Parse JSON fields if needed
+            def _parse_json(raw, default):
+                if isinstance(raw, str):
+                    try:
+                        return json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        return default
+                return raw if raw is not None else default
+
+            stats = _parse_json(getattr(char, "stats", "{}"), {})
+            inventory = _parse_json(getattr(char, "inventory", "[]"), [])
+            conditions = _parse_json(getattr(char, "conditions", "[]"), [])
+
+            stats_str = ", ".join(f"{k}:{v}" for k, v in stats.items()) if stats else "—"
+            inv_str = ", ".join(inventory[:5]) if inventory else "nothing"
+            if len(inventory) > 5:
+                inv_str += f" (+{len(inventory) - 5} more)"
+            cond_str = ", ".join(conditions) if conditions else "none"
+
+            hp_current = getattr(char, "hp_current", 0)
+            hp_max = getattr(char, "hp_max", 0)
+            level = getattr(char, "level", 1)
+            race = getattr(char, "race", "Unknown")
+            class_name = getattr(char, "class_name", "Unknown")
+            name = getattr(char, "name", "Unknown")
+            player_name = getattr(char, "player_name", "Unknown")
+            char_id = getattr(char, "id", "unknown")
+
+            lines.append(
+                f"  [{char_id}] {name} (played by {player_name})\n"
+                f"    {race} {class_name}, Level {level}, HP {hp_current}/{hp_max}\n"
+                f"    Stats: {stats_str}\n"
+                f"    Inventory: {inv_str}\n"
+                f"    Conditions: {cond_str}"
+            )
+
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Streaming response
+    # ------------------------------------------------------------------
+
+    async def stream_response(
+        self,
+        campaign,
+        characters: list,
+        message_history: list[dict],
+        new_message: str,
+        on_tool_use: Callable,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Stream the DM's response, handling tool use in a multi-turn loop.
+
+        Args:
+            campaign: SQLAlchemy Campaign ORM object.
+            characters: List of SQLAlchemy Character ORM objects.
+            message_history: Prior conversation as [{"role": ..., "content": ...}].
+            new_message: The latest player message.
+            on_tool_use: Async callable(tool_name: str, tool_input: dict) -> str
+
+        Yields:
+            Text chunks as they arrive from the API.
+        """
+        system_prompt = self._build_system_prompt(campaign, characters)
+
+        # Build full messages list
+        messages: list[dict] = list(message_history)
+        messages.append({"role": "user", "content": new_message})
+
+        while True:
+            # Collect full response in streaming mode
+            collected_content: list[dict] = []
+            tool_use_blocks: list[dict] = []
+            stop_reason: str = "end_turn"
+
+            async with self.client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=2048,
+                system=system_prompt,
+                tools=TOOLS,
+                messages=messages,
+            ) as stream:
+                # Stream text to caller, collect all blocks
+                current_block: Optional[dict] = None
+                current_text_parts: list[str] = []
+
+                async for event in stream:
+                    event_type = getattr(event, "type", None)
+
+                    if event_type == "content_block_start":
+                        block = getattr(event, "content_block", None)
+                        if block is None:
+                            continue
+                        btype = getattr(block, "type", None)
+                        if btype == "text":
+                            current_block = {"type": "text", "text": ""}
+                            current_text_parts = []
+                        elif btype == "tool_use":
+                            current_block = {
+                                "type": "tool_use",
+                                "id": getattr(block, "id", ""),
+                                "name": getattr(block, "name", ""),
+                                "input": {},
+                            }
+                            tool_use_blocks.append(current_block)
+
+                    elif event_type == "content_block_delta":
+                        delta = getattr(event, "delta", None)
+                        if delta is None:
+                            continue
+                        dtype = getattr(delta, "type", None)
+
+                        if dtype == "text_delta":
+                            text_chunk = getattr(delta, "text", "")
+                            if text_chunk:
+                                if current_block and current_block["type"] == "text":
+                                    current_text_parts.append(text_chunk)
+                                yield text_chunk
+
+                        elif dtype == "input_json_delta":
+                            # Accumulate JSON for tool inputs — we'll parse at block_stop
+                            if current_block and current_block["type"] == "tool_use":
+                                partial = getattr(delta, "partial_json", "")
+                                existing = current_block.get("_raw_input", "")
+                                current_block["_raw_input"] = existing + partial
+
+                    elif event_type == "content_block_stop":
+                        if current_block:
+                            if current_block["type"] == "text":
+                                current_block["text"] = "".join(current_text_parts)
+                                collected_content.append(dict(current_block))
+                            elif current_block["type"] == "tool_use":
+                                # Parse accumulated JSON input
+                                raw = current_block.pop("_raw_input", "{}")
+                                try:
+                                    current_block["input"] = json.loads(raw) if raw else {}
+                                except json.JSONDecodeError:
+                                    current_block["input"] = {}
+                                collected_content.append(dict(current_block))
+                            current_block = None
+                            current_text_parts = []
+
+                    elif event_type == "message_delta":
+                        delta = getattr(event, "delta", None)
+                        if delta:
+                            stop_reason = getattr(delta, "stop_reason", "end_turn") or "end_turn"
+
+            # If no tool use, we're done
+            if stop_reason != "tool_use" or not tool_use_blocks:
+                break
+
+            # Append assistant message with all content blocks
+            messages.append({"role": "assistant", "content": collected_content})
+
+            # Execute each tool and collect results
+            tool_results: list[dict] = []
+            for tb in tool_use_blocks:
+                tool_name = tb.get("name", "")
+                tool_input = tb.get("input", {})
+                tool_id = tb.get("id", "")
+
+                try:
+                    result = await on_tool_use(tool_name, tool_input)
+                except Exception as exc:
+                    result = f"Error executing tool {tool_name}: {exc}"
+
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": str(result),
+                    }
+                )
+
+            # Feed results back
+            messages.append({"role": "user", "content": tool_results})
+
+            # Clear tool_use_blocks for next iteration
+            tool_use_blocks = []
+            collected_content = []
+
+    # ------------------------------------------------------------------
+    # Vision: dice detection
+    # ------------------------------------------------------------------
+
+    async def detect_dice(self, frame_b64: str) -> list[dict]:
+        """
+        Use Claude vision to detect dice values in a base64-encoded image.
+
+        Args:
+            frame_b64: Base64-encoded image string (JPEG or PNG).
+
+        Returns:
+            List of dicts like [{"sides": 6, "value": 4}, ...].
+        """
+        prompt = (
+            "Look at this image and identify all visible dice. "
+            "Return ONLY a JSON array of objects, each with 'sides' (integer, the number of sides "
+            "on the die, e.g. 4, 6, 8, 10, 12, 20) and 'value' (integer, the number showing on top). "
+            "If no dice are visible, return an empty array []. "
+            "Example: [{\"sides\": 20, \"value\": 15}, {\"sides\": 6, \"value\": 3}]"
+        )
+
+        try:
+            response = await self.client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=256,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": frame_b64,
+                                },
+                            },
+                            {"type": "text", "text": prompt},
+                        ],
+                    }
+                ],
+            )
+
+            # Extract text from the response
+            text = ""
+            for block in response.content:
+                if getattr(block, "type", None) == "text":
+                    text = getattr(block, "text", "")
+                    break
+
+            # Parse JSON array from response
+            # Find the first [...] in the response
+            match = re.search(r"\[.*?\]", text, re.DOTALL)
+            if match:
+                data = json.loads(match.group(0))
+                # Validate structure
+                result = []
+                for item in data:
+                    if isinstance(item, dict) and "sides" in item and "value" in item:
+                        result.append(
+                            {
+                                "sides": int(item["sides"]),
+                                "value": int(item["value"]),
+                            }
+                        )
+                return result
+            return []
+
+        except (json.JSONDecodeError, ValueError, anthropic.APIError, KeyError):
+            return []

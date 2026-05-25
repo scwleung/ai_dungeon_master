@@ -1,0 +1,102 @@
+/* =============================================
+   FANTASY THEME — Parchment & Gold
+   Dark warm browns, aged paper feel, serif fonts
+   ============================================= */
+
+body.theme-fantasy {
+  --bg-primary: #1a1209;
+  --bg-secondary: #2a1f0e;
+  --bg-panel: #231810;
+  --bg-input: #1e160a;
+  --bg-card: #2e2210;
+  --bg-overlay: rgba(10, 6, 2, 0.88);
+
+  --text-primary: #e8d5a3;
+  --text-secondary: #b89a6a;
+  --text-muted: #8a7a5a;
+  --text-inverse: #1a1209;
+
+  --accent: #c4820a;
+  --accent-hover: #e6a020;
+  --accent-danger: #8b2020;
+  --accent-danger-hover: #b02828;
+  --accent-success: #2d6e2d;
+  --accent-success-hover: #3a8f3a;
+  --accent-info: #2a5a8b;
+
+  --border: #4a3520;
+  --border-light: #6a5030;
+  --border-focus: #c4820a;
+
+  --shadow: rgba(0, 0, 0, 0.5);
+  --shadow-lg: rgba(0, 0, 0, 0.75);
+
+  --font-primary: 'Palatino Linotype', Palatino, 'Book Antiqua', serif;
+  --font-mono: 'Courier New', monospace;
+  --font-sans: Georgia, 'Times New Roman', serif;
+
+  --radius: 4px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+  --transition: 0.2s ease;
+  --sidebar-width: 320px;
+  --header-height: 56px;
+
+  --hp-high: #2d8f2d;
+  --hp-mid: #8f8f1a;
+  --hp-low: #8f2020;
+  --dice-color: #c4820a;
+}
+
+/* Extra decorative touches for fantasy theme */
+body.theme-fantasy .card {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 2px,
+    rgba(196, 130, 10, 0.02) 2px,
+    rgba(196, 130, 10, 0.02) 4px
+  );
+}
+
+body.theme-fantasy .modal-box {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px rgba(196, 130, 10, 0.15),
+    0 20px 60px rgba(0, 0, 0, 0.8),
+    inset 0 1px 0 rgba(196, 130, 10, 0.1);
+}
+
+body.theme-fantasy h1,
+body.theme-fantasy h2,
+body.theme-fantasy h3 {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+body.theme-fantasy .panel {
+  box-shadow: inset 0 1px 0 rgba(196, 130, 10, 0.05);
+}
+
+/* Narrative log DM messages get a special parchment look */
+body.theme-fantasy .msg-dm {
+  border-left: 3px solid var(--accent);
+  padding-left: var(--space-3);
+  font-style: italic;
+  background: rgba(196, 130, 10, 0.04);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+/* Gold rule dividers */
+body.theme-fantasy hr,
+body.theme-fantasy .divider {
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--border-light),
+    var(--accent),
+    var(--border-light),
+    transparent
+  );
+  height: 1px;
+  border: none;
+}

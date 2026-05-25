@@ -1,0 +1,138 @@
+/* =============================================
+   MINIMAL THEME — Clean & Modern
+   Near-white backgrounds, dark text, subtle borders, sans-serif
+   ============================================= */
+
+body.theme-minimal {
+  --bg-primary: #f5f5f0;
+  --bg-secondary: #eeeee8;
+  --bg-panel: #f0f0ea;
+  --bg-input: #ffffff;
+  --bg-card: #ffffff;
+  --bg-overlay: rgba(50, 50, 50, 0.6);
+
+  --text-primary: #1a1a1a;
+  --text-secondary: #444444;
+  --text-muted: #888888;
+  --text-inverse: #f5f5f0;
+
+  --accent: #1a5cb4;
+  --accent-hover: #1a4a94;
+  --accent-danger: #c0280a;
+  --accent-danger-hover: #a02008;
+  --accent-success: #1a7a30;
+  --accent-success-hover: #156025;
+  --accent-info: #2a70b8;
+
+  --border: #d8d8d0;
+  --border-light: #c0c0b8;
+  --border-focus: #1a5cb4;
+
+  --shadow: rgba(0, 0, 0, 0.08);
+  --shadow-lg: rgba(0, 0, 0, 0.18);
+
+  --font-primary: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  --radius: 6px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+  --transition: 0.15s ease;
+  --sidebar-width: 320px;
+  --header-height: 56px;
+
+  --hp-high: #1a7a30;
+  --hp-mid: #a07800;
+  --hp-low: #c0280a;
+  --dice-color: #1a5cb4;
+}
+
+/* Minimal-specific adjustments */
+body.theme-minimal .card {
+  box-shadow: 0 1px 4px var(--shadow);
+  border-color: var(--border);
+}
+
+body.theme-minimal .card:hover {
+  box-shadow: 0 4px 12px var(--shadow);
+  border-color: var(--border-light);
+}
+
+body.theme-minimal .modal-box {
+  box-shadow: 0 16px 48px var(--shadow-lg);
+  border: none;
+}
+
+body.theme-minimal .panel {
+  box-shadow: 0 1px 3px var(--shadow);
+}
+
+body.theme-minimal input,
+body.theme-minimal textarea,
+body.theme-minimal select {
+  background: var(--bg-input);
+  border-color: var(--border);
+}
+
+body.theme-minimal input:focus,
+body.theme-minimal textarea:focus,
+body.theme-minimal select:focus {
+  box-shadow: 0 0 0 3px rgba(26, 92, 180, 0.15);
+}
+
+body.theme-minimal button {
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+}
+
+body.theme-minimal h1,
+body.theme-minimal h2,
+body.theme-minimal h3,
+body.theme-minimal h4 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+body.theme-minimal label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+
+/* DM messages in minimal are clean and readable */
+body.theme-minimal .msg-dm {
+  border-left: 3px solid var(--accent);
+  padding-left: var(--space-3);
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  line-height: 1.7;
+  background: rgba(26, 92, 180, 0.03);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+body.theme-minimal .badge {
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+
+body.theme-minimal hr,
+body.theme-minimal .divider {
+  background: var(--border);
+}
+
+/* Scrollbar for minimal */
+body.theme-minimal ::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+body.theme-minimal ::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+}
+
+body.theme-minimal ::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}

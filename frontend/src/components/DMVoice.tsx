@@ -2,6 +2,18 @@ import { useEffect, useRef } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { useTTS } from '../hooks/useTTS'
 
+/**
+ * Headless audio driver that auto-plays DM narration via the configured TTS provider.
+ *
+ * Watches the message log for new DM messages (role `'dm'`) and calls `speak` from
+ * {@link useTTS} for each one, tracking the last spoken message ID to avoid
+ * re-playing on re-renders. Does nothing when `ttsProvider` is `'none'`.
+ *
+ * Renders no visible DOM while silent; when speech is active it shows a small
+ * fixed indicator badge in the bottom-right corner with a stop button.
+ *
+ * No props are required — all state is read from the Zustand store.
+ */
 export function DMVoice() {
   const { messages, settings } = useGameStore()
   const { speak, stop, speaking } = useTTS()

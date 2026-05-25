@@ -498,6 +498,47 @@ class DungeonMaster:
             collected_content = []
 
     # ------------------------------------------------------------------
+    # Context summarisation
+    # ------------------------------------------------------------------
+
+    async def summarize_history(
+        self, conversation_text: str, existing_summary: str = ""
+    ) -> str:
+        """Condense older session messages into a compact narrative summary.
+
+        Called automatically when a session's message window exceeds the
+        rolling threshold defined in ``main.py``.  Uses claude-haiku for
+        cost-efficient summarisation.
+
+        Args:
+            conversation_text: Newline-separated ROLE: text transcript of the
+                messages to be summarised.
+            existing_summary: Prior summary to fold in; empty string if this
+                is the first summarisation pass.
+
+        Returns:
+            A concise third-person narrative summary (≈150-250 words).
+        """
+        parts: list[str] = []
+        if existing_summary:
+            parts.append(f"Earlier summary:\n{existing_summary}\n\n")
+        parts.append(f"Recent messages to incorporate:\n{conversation_text}")
+
+        response = await self.client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            system=(
+                "You are summarising the history of a tabletop RPG session. "
+                "Produce a concise third-person narrative summary (150-250 words) "
+                "capturing: key events, character decisions, important NPCs encountered, "
+                "active quests or goals, and the current situation. "
+                "Write in present-perfect tense. Be specific about names and places."
+            ),
+            messages=[{"role": "user", "content": "".join(parts)}],
+        )
+        return response.content[0].text
+
+    # ------------------------------------------------------------------
     # Vision: dice detection
     # ------------------------------------------------------------------
 

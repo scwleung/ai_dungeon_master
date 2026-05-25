@@ -93,7 +93,11 @@ class Session(Base):
         ended_at: UTC timestamp when ``end_session`` was called; ``None`` while
             the session is still active.
         messages: JSON-serialised list of ``NarrativeMessage`` dicts that form
-            the session's chat history.
+            the session's chat history (only the most recent window after
+            summarisation).
+        session_summary: Condensed narrative of messages that have been rolled
+            out of the active window; ``None`` for sessions that have not yet
+            been summarised.
         campaign: Back-reference to the parent ``Campaign`` object.
     """
 
@@ -104,6 +108,7 @@ class Session(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     messages: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    session_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="sessions")
 
@@ -201,7 +206,8 @@ class SessionResponse(BaseModel):
 
     ``messages`` is always returned as a parsed list of ``NarrativeMessage``
     objects regardless of whether the underlying ORM field is a JSON string
-    or an already-decoded list.
+    or an already-decoded list.  ``session_summary`` holds the condensed
+    narrative of messages that have been rolled out of the active window.
     """
 
     id: str
@@ -209,6 +215,7 @@ class SessionResponse(BaseModel):
     started_at: datetime
     ended_at: Optional[datetime] = None
     messages: list[NarrativeMessage] = []
+    session_summary: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -232,6 +239,7 @@ class SessionResponse(BaseModel):
                 "started_at": obj.started_at,
                 "ended_at": obj.ended_at,
                 "messages": parsed,
+                "session_summary": getattr(obj, "session_summary", None),
             }
         if isinstance(values, dict):
             raw = values.get("messages", "[]")

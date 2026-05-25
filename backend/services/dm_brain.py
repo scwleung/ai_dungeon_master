@@ -21,6 +21,8 @@ from backend.models.roll_result import roll_dice
 # Ruleset descriptions
 # ---------------------------------------------------------------------------
 
+# Maps ruleset identifiers to compact game-system descriptions injected into
+# the DM system prompt so Claude knows which mechanical rules to apply.
 RULESET_DESCRIPTIONS: dict[str, str] = {
     "dnd5e": (
         "D&D 5th Edition. Use ability checks (DC-based), advantage/disadvantage, "
@@ -207,7 +209,27 @@ TOOLS: list[dict] = [
 
 
 class DungeonMaster:
-    """Wraps AsyncAnthropic to act as a streaming, tool-using Dungeon Master."""
+    """Orchestrates Claude as a streaming, tool-using Dungeon Master.
+
+    Wraps ``AsyncAnthropic`` to provide:
+
+    * **System-prompt generation** — builds a rich, ruleset-aware prompt from
+      campaign data, world state, and the current character roster.
+    * **Streaming narration** — yields text chunks from Claude in real time
+      while transparently handling multi-turn tool-use loops.
+    * **Four Claude tools** exposed to the model:
+        - ``roll_dice`` — DM-side secret or visible rolls.
+        - ``request_player_roll`` — suspends generation until a player submits
+          a result through the WebSocket.
+        - ``update_character`` — mutates HP, inventory, and conditions in the DB.
+        - ``update_world_state`` — persists key/value facts about the world.
+    * **Vision-based dice detection** — reads a camera frame and returns the
+      face values of any physical dice it can see.
+
+    A single ``DungeonMaster`` instance is shared across all WebSocket
+    connections (see ``backend/main.py``) because it holds no per-session
+    mutable state.
+    """
 
     def __init__(self) -> None:
         self.client = AsyncAnthropic()
@@ -217,7 +239,23 @@ class DungeonMaster:
     # ------------------------------------------------------------------
 
     def _build_system_prompt(self, campaign, characters: list) -> str:
-        """Build the system prompt from the campaign data and character list."""
+        """Assemble the DM system prompt from campaign data and the character roster.
+
+        Combines the ruleset description, campaign name/description, serialised
+        world state, and a formatted character summary into
+        ``DM_SYSTEM_TEMPLATE``.  The result is passed as the ``system``
+        parameter on every Claude API call.
+
+        Args:
+            campaign: A ``Campaign`` ORM object (or any object with the
+                attributes ``ruleset``, ``name``, ``description``, and
+                ``world_state``).
+            characters: List of ``Character`` ORM objects belonging to the
+                campaign.
+
+        Returns:
+            Fully rendered system-prompt string ready for the Anthropic API.
+        """
         ruleset = getattr(campaign, "ruleset", "freeform")
         ruleset_description = RULESET_DESCRIPTIONS.get(
             ruleset, RULESET_DESCRIPTIONS["freeform"]
@@ -257,7 +295,22 @@ class DungeonMaster:
         )
 
     def _format_characters(self, characters: list) -> str:
-        """Format character list as readable text for the system prompt."""
+        """Render the character roster as an indented text block for the system prompt.
+
+        Each character is shown with their UUID (so Claude can reference it in
+        ``update_character`` tool calls), display name, player name, class,
+        level, current/max HP, ability scores, first five inventory items, and
+        active conditions.
+
+        Args:
+            characters: List of ``Character`` ORM objects.  JSON-serialised
+                fields (``stats``, ``inventory``, ``conditions``) are decoded
+                inline if they arrive as raw strings.
+
+        Returns:
+            Multi-line string suitable for embedding in ``DM_SYSTEM_TEMPLATE``.
+            Returns a placeholder sentence when the list is empty.
+        """
         if not characters:
             return "  (No characters registered yet)"
 

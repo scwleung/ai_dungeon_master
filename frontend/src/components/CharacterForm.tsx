@@ -31,6 +31,18 @@ function computeSuggestedHP(conScore: number, level: number): number {
   return Math.max(1, 8 + conMod + (level - 1) * (5 + conMod))
 }
 
+/**
+ * Modal form for creating a new character in a campaign.
+ *
+ * Collects player name, character name, race, class, level, the six D&D ability
+ * scores (STR/DEX/CON/INT/WIS/CHA), max HP (auto-suggested from CON and level using
+ * the D&D 5e d8 hit die formula), starting inventory, and free-form notes.
+ * On submit the character is persisted via the API and the store is updated.
+ *
+ * @param campaignId - ID of the campaign to attach the new character to.
+ * @param onClose - Called after a successful creation or when the user dismisses the modal.
+ * @param onCreated - Optional callback receiving the newly created character.
+ */
 export function CharacterForm({ campaignId, onClose, onCreated }: Props) {
   const { createCharacter, settings } = useGameStore()
 

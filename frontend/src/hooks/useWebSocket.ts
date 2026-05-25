@@ -5,6 +5,21 @@ import type { WsClientMessage, WsServerMessage } from '../types'
 const BASE_RECONNECT_MS = 1000
 const MAX_RECONNECT_MS = 30000
 
+/**
+ * Manages a WebSocket connection to the FastAPI backend at `/ws/{sessionId}`.
+ *
+ * Automatically connects when `sessionId` is non-null, sends a `join_session`
+ * message on open, and applies exponential back-off reconnection on close.
+ * Incoming server messages are dispatched directly into the Zustand store.
+ *
+ * @param sessionId - The active session ID to connect to, or `null` to stay disconnected.
+ * @returns An object with:
+ * - `connected` — whether the socket is currently open.
+ * - `sendAction` — send a player's free-text action to the DM.
+ * - `sendVoiceTranscript` — send an STT transcript as a player action.
+ * - `sendDiceImage` — send a base64 JPEG frame for Claude Vision dice detection.
+ * - `sendManualRoll` — send a manually entered dice roll result.
+ */
 export function useWebSocket(sessionId: string | null) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)

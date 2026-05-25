@@ -49,69 +49,124 @@ function saveSettings(settings: GameSettings): void {
   }
 }
 
+/** Describes a dice roll that the server has requested but not yet received a result for. */
 export interface PendingRoll {
+  /** Correlates this pending roll to the server's original `dice_request` message. */
   roll_request_id: string
+  /** Dice notation string, e.g. `"2d6"`. */
   dice: string
+  /** Skill or ability check that triggered the roll (e.g. `"Perception"`). */
   skill: string
+  /** Difficulty class the result must meet or exceed; absent for open rolls. */
   dc?: number
 }
 
+/** A player who has joined the current session, as reported by the server. */
 export interface ActivePlayer {
+  /** The player's unique session identifier. */
   player_id: string
+  /** The player's chosen display name. */
   player_name: string
 }
 
+/**
+ * Complete Zustand store shape for the AI Dungeon Master frontend.
+ *
+ * State is split into logical sections: navigation, settings, campaigns,
+ * sessions, characters, active players, and the pending dice roll.
+ * Async actions call the REST API and update the store on success.
+ */
 export interface GameStore {
   // Navigation
+
+  /** Current top-level view rendered by the app. */
   view: AppView
+  /** Navigate to a different top-level view. */
   setView: (v: AppView) => void
 
   // Settings
+
+  /** Persisted user preferences (TTS, theme, player identity). */
   settings: GameSettings
+  /** Merge partial settings into the current settings and persist to localStorage. */
   updateSettings: (partial: Partial<GameSettings>) => void
 
   // Campaign
+
+  /** All campaigns fetched from the server for the current user. */
   campaigns: Campaign[]
+  /** The campaign currently open in the detail or session view; `null` when on the list view. */
   activeCampaign: Campaign | null
+  /** Fetch all campaigns from the server and replace the `campaigns` list. */
   loadCampaigns: () => Promise<void>
+  /** Create a new campaign via the API and append it to `campaigns`. */
   createCampaign: (data: {
     name: string
     ruleset: RulesetName
     description: string
   }) => Promise<Campaign>
+  /** Delete a campaign by ID via the API and remove it from `campaigns`. */
   deleteCampaign: (id: string) => Promise<void>
+  /** Set the active campaign without making a network request. */
   setActiveCampaign: (c: Campaign | null) => void
 
   // Session
+
+  /** The currently running session; `null` when no session is active. */
   activeSession: Session | null
+  /** Ordered list of narrative messages displayed in the log. */
   messages: NarrativeMessage[]
+  /** Partially streamed DM text being assembled before `dm_response_complete`. */
   streamingText: string
+  /** Set the active session and pre-populate `messages` from its history. */
   setActiveSession: (s: Session | null) => void
+  /** Start a new session for the given campaign via the API. */
   startSession: (campaignId: string) => Promise<Session>
+  /** End the active session via the API and clear session state. */
   endSession: () => Promise<void>
+  /** Append a single message to the narrative log. */
   appendMessage: (msg: NarrativeMessage) => void
+  /** Replace the current streaming text buffer (called on each `dm_chunk`). */
   setStreamingText: (text: string) => void
 
   // Characters
+
+  /** Characters belonging to the active campaign. */
   characters: Character[]
+  /** Fetch all characters for a campaign from the server. */
   loadCharacters: (campaignId: string) => Promise<void>
+  /** Create a new character via the API and append it to `characters`. */
   createCharacter: (
     campaignId: string,
     data: Omit<Character, 'id' | 'campaign_id'>
   ) => Promise<Character>
+  /**
+   * Apply local updates to a character in the store and persist them to the
+   * backend via a fire-and-forget PATCH call.
+   */
   updateCharacter: (id: string, updates: Partial<Character>) => void
 
   // Players in session
+
+  /** Players who have joined the active session, as reported by the server. */
   activePlayers: ActivePlayer[]
+  /** Add a player to `activePlayers`; no-op if the player is already present. */
   addPlayer: (player_id: string, player_name: string) => void
+  /** Remove a player from `activePlayers` by their ID. */
   removePlayer: (player_id: string) => void
 
   // Pending dice roll
+
+  /** The roll request currently awaiting a camera-capture or manual response; `null` when idle. */
   pendingRoll: PendingRoll | null
+  /** Set or clear the pending roll. */
   setPendingRoll: (r: PendingRoll | null) => void
 
   // Sessions history
+
+  /** Historical sessions for the active campaign, loaded by `loadSessions`. */
   sessions: Session[]
+  /** Fetch the session history for a campaign from the server. */
   loadSessions: (campaignId: string) => Promise<void>
 }
 

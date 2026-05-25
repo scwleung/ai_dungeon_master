@@ -1,3 +1,23 @@
+"""
+Campaign and Session ORM models and Pydantic schemas.
+
+ORM models:
+    Campaign  — top-level container for a role-playing campaign.
+    Session   — a single play session within a campaign; stores the full
+                message history as a JSON-serialised list.
+
+Pydantic schemas:
+    CampaignCreate    — input schema for creating a campaign.
+    CampaignResponse  — output schema returned by the campaigns API.
+    NarrativeMessage  — a single message in a session's chat history.
+    SessionResponse   — output schema returned by the sessions API.
+
+JSON storage note: ``world_state`` (Campaign) and ``messages`` (Session) are
+persisted as JSON strings in SQLite because aiosqlite does not natively support
+JSON columns.  The Pydantic ``model_validator`` methods handle deserialisation
+when constructing response objects.
+"""
+
 import json
 import uuid
 from datetime import datetime
@@ -16,6 +36,21 @@ from pydantic import BaseModel, model_validator
 
 
 class Campaign(Base):
+    """SQLAlchemy ORM model representing a role-playing campaign.
+
+    Attributes:
+        id: UUID primary key generated at creation time.
+        name: Human-readable campaign title.
+        ruleset: Game system identifier (``dnd5e``, ``pathfinder2e``, or
+            ``freeform``).
+        description: Optional flavour text / premise for the campaign.
+        created_at: Server-side UTC timestamp set on INSERT.
+        world_state: JSON-serialised dict tracking persistent world facts
+            (NPC attitudes, quest state, current location, etc.).
+        characters: One-to-many relationship to ``Character`` rows.
+        sessions: One-to-many relationship to ``Session`` rows.
+    """
+
     __tablename__ = "campaigns"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -40,6 +75,19 @@ class Campaign(Base):
 
 
 class Session(Base):
+    """SQLAlchemy ORM model representing a single play session.
+
+    Attributes:
+        id: UUID primary key.
+        campaign_id: Foreign key to the parent ``Campaign``; cascades on delete.
+        started_at: UTC timestamp when the session was created.
+        ended_at: UTC timestamp when ``end_session`` was called; ``None`` while
+            the session is still active.
+        messages: JSON-serialised list of ``NarrativeMessage`` dicts that form
+            the session's chat history.
+        campaign: Back-reference to the parent ``Campaign`` object.
+    """
+
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -57,12 +105,20 @@ class Session(Base):
 
 
 class CampaignCreate(BaseModel):
+    """Request body for creating a new campaign."""
+
     name: str
     ruleset: str = "dnd5e"
     description: str = ""
 
 
 class CampaignResponse(BaseModel):
+    """API response schema for a campaign.
+
+    ``world_state`` is always returned as a parsed ``dict``; ``session_count``
+    is derived from the length of the ``sessions`` relationship at read time.
+    """
+
     id: str
     name: str
     ruleset: str
@@ -76,6 +132,7 @@ class CampaignResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def parse_world_state(cls, values):
+        """Deserialise ``world_state`` and compute ``session_count`` from an ORM object or dict."""
         # Handle SQLAlchemy ORM object
         if hasattr(values, "__dict__"):
             obj = values
@@ -107,6 +164,18 @@ class CampaignResponse(BaseModel):
 
 
 class NarrativeMessage(BaseModel):
+    """A single message in a session's chat history.
+
+    Attributes:
+        id: Client-generated or server-generated identifier for the message.
+        role: Speaker role — ``"user"``, ``"assistant"``, or ``"system"``.
+        player_name: Display name of the human player, present when
+            ``role == "user"`` and ``None`` for assistant/system messages.
+        text: The narrative or player text content.
+        timestamp: ISO 8601 timestamp string recorded when the message was
+            added to the session.
+    """
+
     id: str
     role: str  # "user" | "assistant" | "system"
     player_name: Optional[str] = None
@@ -115,6 +184,13 @@ class NarrativeMessage(BaseModel):
 
 
 class SessionResponse(BaseModel):
+    """API response schema for a play session.
+
+    ``messages`` is always returned as a parsed list of ``NarrativeMessage``
+    objects regardless of whether the underlying ORM field is a JSON string
+    or an already-decoded list.
+    """
+
     id: str
     campaign_id: str
     started_at: datetime
@@ -126,6 +202,7 @@ class SessionResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def parse_messages(cls, values):
+        """Deserialise the JSON ``messages`` field from an ORM object or dict."""
         if hasattr(values, "__dict__"):
             obj = values
             raw = obj.messages

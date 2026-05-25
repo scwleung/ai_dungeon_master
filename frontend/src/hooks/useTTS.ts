@@ -2,6 +2,22 @@ import { useCallback, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { TTSProvider } from '../types'
 
+/**
+ * Provides text-to-speech playback across three backends.
+ *
+ * - `'browser'` — uses the Web Speech API (`SpeechSynthesis`), preferring a
+ *   natural-sounding English voice when available.
+ * - `'elevenlabs'` / `'openai'` — calls `POST /api/tts/synthesize`, receives an
+ *   audio Blob, and plays it via an `<Audio>` element.
+ * - `'none'` — does nothing (silent mode).
+ *
+ * Only one utterance plays at a time; calling `speak` cancels any in-progress audio.
+ *
+ * @returns An object with:
+ * - `speak(text, provider, voiceId?)` — start speaking the given text.
+ * - `stop()` — immediately cancel any in-progress speech.
+ * - `speaking` — `true` while audio is playing.
+ */
 export function useTTS() {
   const [speaking, setSpeaking] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)

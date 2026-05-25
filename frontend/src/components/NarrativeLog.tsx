@@ -37,6 +37,17 @@ function StreamingMessage({ text }: { text: string }) {
   )
 }
 
+/**
+ * Scrollable narrative log that renders the session message history.
+ *
+ * DM messages appear left-aligned in italic; player messages are right-aligned;
+ * system notices (dice requests, join/leave events) are centred in pill badges.
+ * While the DM is streaming a response, a live `StreamingMessage` with a blinking
+ * cursor is appended below the history. The log auto-scrolls to the bottom when
+ * new content arrives, unless the user has manually scrolled up.
+ *
+ * Reads `messages` and `streamingText` from the Zustand store; no props are required.
+ */
 export function NarrativeLog() {
   const { messages, streamingText } = useGameStore()
   const bottomRef = useRef<HTMLDivElement>(null)

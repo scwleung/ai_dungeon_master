@@ -6,6 +6,17 @@ interface Props {
   disabled?: boolean
 }
 
+/**
+ * Toggle button for browser speech-to-text input via {@link useSpeechRecognition}.
+ *
+ * Pressing the button starts recognition; pressing again (or when recognition ends
+ * naturally) stops it and fires `onTranscript` with the captured text. While a
+ * transcript is pending but not yet sent, a preview chip is shown with a clear button.
+ * The component renders nothing when the browser does not support SpeechRecognition.
+ *
+ * @param onTranscript - Called with the final transcript string after recognition stops.
+ * @param disabled - When `true` the button is inert (e.g. while the DM is streaming).
+ */
 export function MicButton({ onTranscript, disabled }: Props) {
   const { supported, listening, transcript, startListening, stopListening, clearTranscript } =
     useSpeechRecognition()

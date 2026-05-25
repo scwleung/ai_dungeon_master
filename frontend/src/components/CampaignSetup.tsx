@@ -25,6 +25,16 @@ const RULESETS: { value: RulesetName; label: string; desc: string }[] = [
   },
 ]
 
+/**
+ * Modal form for creating a new campaign.
+ *
+ * Lets the user pick a name, ruleset (D&D 5e / Pathfinder 2e / Freeform), and optional
+ * premise text. On success the new campaign is set as active and the view transitions
+ * to `campaign_detail`. Closes itself by calling `onClose`.
+ *
+ * @param onClose - Called after a successful creation or when the user dismisses the modal.
+ * @param onCreated - Optional callback fired immediately after the campaign is created.
+ */
 export function CampaignSetup({ onClose, onCreated }: Props) {
   const { createCampaign, setActiveCampaign, setView, loadCharacters } = useGameStore()
 

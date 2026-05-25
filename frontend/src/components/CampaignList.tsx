@@ -23,6 +23,16 @@ function formatDate(iso: string): string {
   }).format(new Date(iso))
 }
 
+/**
+ * Full-page view listing all of the user's campaigns.
+ *
+ * Displays a card grid with each campaign's name, ruleset badge, description excerpt,
+ * creation date, and session count. Provides "Continue" navigation to `campaign_detail`
+ * and inline delete-with-confirmation. Opens the {@link CampaignSetup} modal when the
+ * user wants to create a new campaign.
+ *
+ * Reads from and writes to the Zustand store; no props are required.
+ */
 export function CampaignList() {
   const { campaigns, deleteCampaign, setActiveCampaign, setView, loadCharacters, loadSessions } =
     useGameStore()

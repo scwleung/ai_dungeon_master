@@ -117,6 +117,12 @@ async def get_campaign(campaign_id: str, db: AsyncSession = Depends(get_db)):
 
 
 class CampaignUpdate(BaseModel):
+    """Partial-update body for a campaign (PATCH semantics).
+
+    Only ``name`` and ``description`` may be changed after creation; the
+    ruleset is immutable to avoid invalidating existing game-state data.
+    """
+
     name: Optional[str] = None
     description: Optional[str] = None
 

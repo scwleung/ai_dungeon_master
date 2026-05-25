@@ -7,6 +7,21 @@ import { CharacterSheet } from './CharacterSheet'
 import { DiceCamera } from './DiceCamera'
 import { DMVoice } from './DMVoice'
 
+/**
+ * Root layout for an active play session.
+ *
+ * Mounts the WebSocket connection via {@link useWebSocket} and arranges the
+ * two-panel layout: the left {@link NarrativeLog} + {@link PlayerInput} panel
+ * and an optional right {@link CharacterSheet} sidebar for the current player's
+ * character. A session top-bar shows the campaign name, connection status,
+ * active-player pills, and the "End Session" action.
+ *
+ * When a `pendingRoll` appears in the store the {@link DiceCamera} overlay is
+ * displayed automatically. {@link DMVoice} is mounted as a hidden audio driver
+ * that auto-plays DM narration via the configured TTS provider.
+ *
+ * Reads all necessary state from the Zustand store; no props are required.
+ */
 export function SessionView() {
   const {
     activeSession,

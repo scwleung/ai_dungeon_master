@@ -7,6 +7,17 @@ const THEMES: { name: ThemeName; label: string; icon: string }[] = [
   { name: 'minimal', label: 'Minimal', icon: '◻' },
 ]
 
+/**
+ * Segmented control for switching between the three UI themes.
+ *
+ * Applies the selected theme by toggling a `theme-<name>` class on `document.body`
+ * (which activates the matching CSS custom-property overrides) and persists the
+ * choice to the Zustand store via `updateSettings`.
+ *
+ * Available themes: `'fantasy'` | `'hud'` | `'minimal'`.
+ *
+ * No props are required — state is read from and written to the Zustand store.
+ */
 export function ThemeSwitcher() {
   const { settings, updateSettings } = useGameStore()
 

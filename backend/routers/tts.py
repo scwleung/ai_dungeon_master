@@ -25,6 +25,16 @@ router = APIRouter()
 
 
 class SynthesizeRequest(BaseModel):
+    """Request body for the ``/synthesize`` endpoint.
+
+    Attributes:
+        text: The narrative text to convert to speech.
+        provider: TTS backend to use — ``"elevenlabs"``, ``"openai"``, or
+            ``"browser"`` (browser-side is rejected server-side; see endpoint).
+        voice_id: Optional provider-specific voice identifier.  When omitted
+            each provider falls back to its configured default voice.
+    """
+
     text: str
     provider: str
     voice_id: Optional[str] = None

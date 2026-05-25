@@ -35,6 +35,19 @@ function Section({
   )
 }
 
+/**
+ * Collapsible character sheet panel rendered in the session sidebar.
+ *
+ * Displays the character's HP bar with quick-increment buttons (±1, ±5, full heal),
+ * inline HP editing, ability score grid with computed modifiers, active conditions,
+ * inventory list, and free-form notes. Every edit is optimistically applied to the
+ * store and then persisted to the backend via a fire-and-forget API call.
+ *
+ * @param character - The character record to display and edit.
+ * @param onUpdate - Callback invoked with the character ID and a partial update object
+ *                   whenever the user makes a change; typically wraps `updateCharacter`
+ *                   from the Zustand store.
+ */
 export function CharacterSheet({ character, onUpdate }: Props) {
   const { updateCharacter } = useGameStore()
   const [newItem, setNewItem] = useState('')

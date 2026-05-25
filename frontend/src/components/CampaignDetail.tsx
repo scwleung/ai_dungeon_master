@@ -108,6 +108,18 @@ function SessionRow({ session }: { session: Session }) {
   )
 }
 
+/**
+ * Detail page for the currently active campaign.
+ *
+ * Shows the campaign hero (name, ruleset badge, description, and a collapsible
+ * world-state key-value grid), a character roster, and a reverse-chronological
+ * session history. Provides the "Start New Session" action which calls the API
+ * and navigates to the `session` view. Opens the {@link CharacterForm} modal for
+ * adding new characters.
+ *
+ * Reads `activeCampaign`, `characters`, and `sessions` from the Zustand store;
+ * no props are required.
+ */
 export function CampaignDetail() {
   const {
     activeCampaign,

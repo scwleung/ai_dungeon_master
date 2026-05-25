@@ -9,6 +9,19 @@ interface Props {
   connected: boolean
 }
 
+/**
+ * Bottom input bar for the active session.
+ *
+ * Provides a multiline textarea (submitted with Ctrl+Enter), a {@link MicButton}
+ * for voice input, and a send button. Shows a banner when a dice roll is pending
+ * (with shortcuts to open the camera or manual-entry modes), a reconnection warning
+ * when the WebSocket is down, and a "DM is narrating…" indicator while streaming.
+ *
+ * @param onSendAction - Called with the trimmed action text when the user submits.
+ * @param onSendVoiceTranscript - Called with the STT transcript when the mic finishes.
+ * @param onOpenDiceCamera - Called when the user clicks a roll-related action button.
+ * @param connected - Whether the WebSocket is currently open; disables input when false.
+ */
 export function PlayerInput({
   onSendAction,
   onSendVoiceTranscript,

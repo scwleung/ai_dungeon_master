@@ -1,3 +1,13 @@
+"""
+Dice-rolling utilities for the AI Dungeon Master application.
+
+Provides ``RollResult``, a lightweight dataclass capturing the outcome of a
+dice roll, and ``roll_dice``, which parses standard RPG dice notation and
+produces a ``RollResult``.
+
+Notation examples: ``"1d20"``, ``"2d6+3"``, ``"4d8-1"``, ``"d6"``.
+"""
+
 import random
 import re
 from dataclasses import dataclass, field
@@ -5,11 +15,21 @@ from dataclasses import dataclass, field
 
 @dataclass
 class RollResult:
-    """Represents the result of a dice roll."""
+    """Represents the outcome of a single dice roll.
 
-    dice: str           # e.g. "2d6+3"
-    values: list[int]   # individual die values
-    modifier: int       # flat modifier (positive or negative)
+    Attributes:
+        dice: The original notation string (e.g. ``"2d6+3"``).
+        values: Individual die face values before the modifier is applied.
+        modifier: Flat integer added to (or subtracted from) the die sum.
+        total: Final result — ``sum(values) + modifier``.
+        reason: Human-readable description of what the roll determines.
+        secret: When ``True`` the result is intended for the DM only and
+            should not be broadcast to players.
+    """
+
+    dice: str
+    values: list[int]
+    modifier: int
     total: int
     reason: str
     secret: bool = False

@@ -10,6 +10,17 @@ const TTS_PROVIDERS: { value: TTSProvider; label: string }[] = [
   { value: 'none', label: 'None (silent)' },
 ]
 
+/**
+ * Application-wide top navigation bar.
+ *
+ * Renders the app title (links to the campaign list), a contextual breadcrumb
+ * showing the active campaign name, a back-navigation button on `campaign_detail`
+ * and `session` views, the {@link ThemeSwitcher} widget, and a settings gear
+ * that opens an inline modal. The settings modal lets the user change their
+ * display name, TTS provider, and provider-specific voice ID.
+ *
+ * Reads from and writes to the Zustand store; no props are required.
+ */
 export function Header() {
   const { view, activeCampaign, settings, updateSettings, setView } = useGameStore()
   const [showSettings, setShowSettings] = useState(false)

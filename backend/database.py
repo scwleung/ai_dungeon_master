@@ -1,3 +1,10 @@
+"""
+Async SQLAlchemy database setup for the AI Dungeon Master application.
+
+Provides the async engine, session factory, declarative base, and FastAPI
+dependency/startup helpers used across all ORM models and routers.
+"""
+
 import os
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker

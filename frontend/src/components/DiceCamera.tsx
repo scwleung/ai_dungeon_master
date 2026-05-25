@@ -22,6 +22,22 @@ function rollRandom(count: number, sides: number): number[] {
   return Array.from({ length: count }, () => Math.floor(Math.random() * sides) + 1)
 }
 
+/**
+ * Modal overlay for resolving a pending dice roll.
+ *
+ * Offers two modes selectable via tabs:
+ * - **Camera** — accesses the device camera (preferring the rear lens), lets the
+ *   user frame their physical dice, captures a JPEG frame, and sends it as a
+ *   base64 string to the server for Claude Vision analysis.
+ * - **Manual** — renders one numeric input per die, accepts individual face values,
+ *   and optionally lets the app roll randomly on the player's behalf.
+ *
+ * Renders nothing when there is no `pendingRoll` in the store.
+ *
+ * @param onSendDiceImage - Called with `(rollRequestId, base64Jpeg)` after capture.
+ * @param onSendManualRoll - Called with `(rollRequestId, values[], total)` on submit.
+ * @param onClose - Called when the user dismisses the overlay without submitting.
+ */
 export function DiceCamera({ onSendDiceImage, onSendManualRoll, onClose }: Props) {
   const { pendingRoll, setPendingRoll } = useGameStore()
   const [mode, setMode] = useState<Mode>('camera')

@@ -36,6 +36,7 @@ router = APIRouter()
 
 
 def _to_response(char: Character) -> CharacterResponse:
+    """Convert a Character ORM object to a CharacterResponse Pydantic model."""
     return CharacterResponse.model_validate(char)
 
 

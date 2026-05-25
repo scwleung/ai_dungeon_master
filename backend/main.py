@@ -4,6 +4,8 @@ FastAPI application entry point for the AI Dungeon Master.
 Provides:
   - REST API under /api/campaigns, /api/characters, /api/tts
   - WebSocket endpoint at /ws/{session_id}
+  - SPA fallback: serves the compiled React frontend from frontend/dist/
+    when that directory exists (i.e. in the Docker production image)
 
 WebSocket message types (client → server):
   join_session         Register player in session room
@@ -33,11 +35,13 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -729,3 +733,16 @@ async def websocket_endpoint(
                     "player_name": player_name,
                 },
             )
+
+
+# ---------------------------------------------------------------------------
+# SPA fallback — serve the built frontend in production (Docker)
+# Must be mounted AFTER all API and WebSocket routes so /api/* and /ws/*
+# are never intercepted by the static-file handler.
+# ---------------------------------------------------------------------------
+
+_dist = Path(__file__).parent.parent / "frontend" / "dist"
+if _dist.exists():
+    # html=True makes StaticFiles return index.html for unknown paths,
+    # which is required for client-side React Router navigation.
+    app.mount("/", StaticFiles(directory=_dist, html=True), name="spa")

@@ -72,7 +72,19 @@ Claude has four tools it may invoke while generating a response:
 
 ## Quick Start
 
-### 1 — Clone and install
+### Docker (recommended for production)
+
+```bash
+cp .env.example .env
+# Set ANTHROPIC_API_KEY (and optionally ELEVENLABS_API_KEY / OPENAI_API_KEY)
+
+docker compose up --build
+```
+
+Open **http://localhost:8000** — the backend serves the compiled frontend directly.
+The SQLite database is persisted in a Docker named volume (`db_data`).
+
+### Local development
 
 ```bash
 git clone https://github.com/scwleung/ai_dungeon_master.git
@@ -85,22 +97,20 @@ pip install -r requirements.txt
 cd frontend && npm install && cd ..
 ```
 
-### 2 — Configure environment
+Configure environment:
 
 ```bash
 cp .env.example .env
 # Edit .env and add your ANTHROPIC_API_KEY at minimum
 ```
 
-See [Environment Variables](#environment-variables) for all options.
-
-### 3 — Run
+Run:
 
 ```bash
-# Terminal 1 — backend
+# Terminal 1 — backend (hot-reload)
 uvicorn backend.main:app --reload --port 8000
 
-# Terminal 2 — frontend dev server
+# Terminal 2 — frontend dev server (Vite proxy → backend)
 cd frontend && npm run dev
 ```
 

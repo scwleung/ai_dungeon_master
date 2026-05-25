@@ -42,7 +42,7 @@ describe('NarrativeLog', () => {
   describe('accessibility', () => {
     it('has aria-live="polite" attribute', () => {
       render(<NarrativeLog />)
-      const log = screen.getByRole('log')
+      const log = screen.getByLabelText('Story log')
       expect(log).toHaveAttribute('aria-live', 'polite')
     })
 

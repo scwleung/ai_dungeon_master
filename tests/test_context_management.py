@@ -8,6 +8,7 @@ import pytest
 from backend.main import (
     SUMMARY_KEEP_RECENT,
     SUMMARY_THRESHOLD,
+    _fetch_previous_session_summary,
     _load_message_history,
     _maybe_summarize_session,
     dm,
@@ -33,6 +34,8 @@ def _make_session_cm(messages: list[dict], summary: str | None = None):
     fake_session = MagicMock()
     fake_session.messages = json.dumps(messages)
     fake_session.session_summary = summary
+    fake_session.campaign_id = "camp-1"
+    fake_session.id = "sess-current"
 
     exec_result = MagicMock()
     exec_result.scalar_one_or_none.return_value = fake_session
@@ -45,6 +48,39 @@ def _make_session_cm(messages: list[dict], summary: str | None = None):
     cm.__aenter__ = AsyncMock(return_value=async_db)
     cm.__aexit__ = AsyncMock(return_value=False)
     return cm, fake_session
+
+
+def _make_cross_session_cm(
+    prev_messages: list[dict],
+    prev_summary: str | None = None,
+    prev_session_exists: bool = True,
+):
+    """Return a mock for _fetch_previous_session_summary's AsyncSessionLocal call.
+
+    The inner execute returns the previous session (or None) for the
+    'most recent prior session' query.
+    """
+    if not prev_session_exists:
+        exec_result = MagicMock()
+        exec_result.scalar_one_or_none.return_value = None
+    else:
+        prev_session = MagicMock()
+        prev_session.messages = json.dumps(prev_messages)
+        prev_session.session_summary = prev_summary
+        prev_session.id = "sess-prev"
+        prev_session.campaign_id = "camp-1"
+
+        exec_result = MagicMock()
+        exec_result.scalar_one_or_none.return_value = prev_session
+
+    async_db = AsyncMock()
+    async_db.execute = AsyncMock(return_value=exec_result)
+    async_db.commit = AsyncMock()
+
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=async_db)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    return cm
 
 
 # ---------------------------------------------------------------------------
@@ -240,3 +276,159 @@ def test_summary_threshold_greater_than_keep_recent():
 
 def test_summary_keep_recent_positive():
     assert SUMMARY_KEEP_RECENT > 0
+
+
+# ---------------------------------------------------------------------------
+# _fetch_previous_session_summary — direct tests
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_previous_no_prior_session_returns_empty():
+    cm = _make_cross_session_cm([], prev_session_exists=False)
+    with patch("backend.main.AsyncSessionLocal", return_value=cm):
+        result = await _fetch_previous_session_summary("camp-1", "sess-current")
+    assert result == ""
+
+
+async def test_fetch_previous_returns_existing_summary():
+    cm = _make_cross_session_cm([], prev_summary="The party slew the troll.")
+    with patch("backend.main.AsyncSessionLocal", return_value=cm):
+        result = await _fetch_previous_session_summary("camp-1", "sess-current")
+    assert result == "The party slew the troll."
+
+
+async def test_fetch_previous_generates_summary_from_messages():
+    prev_msgs = _make_messages(4)
+    cm = _make_cross_session_cm(prev_msgs, prev_summary=None)
+    with (
+        patch("backend.main.AsyncSessionLocal", return_value=cm),
+        patch.object(dm, "summarize_history", new_callable=AsyncMock, return_value="Generated summary."),
+    ):
+        result = await _fetch_previous_session_summary("camp-1", "sess-current")
+    assert result == "Generated summary."
+
+
+async def test_fetch_previous_caches_generated_summary_on_prev_session():
+    prev_msgs = _make_messages(4)
+    cm = _make_cross_session_cm(prev_msgs, prev_summary=None)
+    prev_session_obj = cm.__aenter__.return_value.execute.return_value.scalar_one_or_none.return_value
+    with (
+        patch("backend.main.AsyncSessionLocal", return_value=cm),
+        patch.object(dm, "summarize_history", new_callable=AsyncMock, return_value="Cached."),
+    ):
+        await _fetch_previous_session_summary("camp-1", "sess-current")
+    assert prev_session_obj.session_summary == "Cached."
+
+
+async def test_fetch_previous_empty_prev_messages_returns_empty():
+    cm = _make_cross_session_cm([], prev_summary=None)
+    with patch("backend.main.AsyncSessionLocal", return_value=cm):
+        result = await _fetch_previous_session_summary("camp-1", "sess-current")
+    assert result == ""
+
+
+async def test_fetch_previous_swallows_summarize_exception():
+    prev_msgs = _make_messages(4)
+    cm = _make_cross_session_cm(prev_msgs, prev_summary=None)
+    with (
+        patch("backend.main.AsyncSessionLocal", return_value=cm),
+        patch.object(dm, "summarize_history", new_callable=AsyncMock, side_effect=RuntimeError("down")),
+    ):
+        result = await _fetch_previous_session_summary("camp-1", "sess-current")
+    assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# _load_message_history — cross-session inheritance integration
+# ---------------------------------------------------------------------------
+
+
+async def test_load_history_empty_session_queries_previous_session():
+    # Current session is empty; _fetch_previous_session_summary is also called
+    current_cm, _ = _make_session_cm([], summary=None)
+    with (
+        patch("backend.main.AsyncSessionLocal", return_value=current_cm),
+        patch(
+            "backend.main._fetch_previous_session_summary",
+            new_callable=AsyncMock,
+            return_value="Inherited context.",
+        ) as mock_fetch,
+    ):
+        await _load_message_history("sess-current")
+    mock_fetch.assert_awaited_once()
+
+
+async def test_load_history_empty_session_inherits_previous_summary():
+    current_cm, _ = _make_session_cm([], summary=None)
+    with (
+        patch("backend.main.AsyncSessionLocal", return_value=current_cm),
+        patch(
+            "backend.main._fetch_previous_session_summary",
+            new_callable=AsyncMock,
+            return_value="Inherited context.",
+        ),
+    ):
+        history = await _load_message_history("sess-current")
+    # Two synthetic context messages + no real messages
+    assert len(history) == 2
+    assert "Inherited context." in history[0]["content"]
+
+
+async def test_load_history_empty_session_caches_inherited_summary():
+    current_cm, current_session = _make_session_cm([], summary=None)
+    with (
+        patch("backend.main.AsyncSessionLocal", return_value=current_cm),
+        patch(
+            "backend.main._fetch_previous_session_summary",
+            new_callable=AsyncMock,
+            return_value="Cached context.",
+        ),
+    ):
+        await _load_message_history("sess-current")
+    assert current_session.session_summary == "Cached context."
+    current_cm.__aenter__.return_value.commit.assert_awaited_once()
+
+
+async def test_load_history_empty_session_no_previous_context_returns_no_context():
+    current_cm, _ = _make_session_cm([], summary=None)
+    with (
+        patch("backend.main.AsyncSessionLocal", return_value=current_cm),
+        patch(
+            "backend.main._fetch_previous_session_summary",
+            new_callable=AsyncMock,
+            return_value="",
+        ),
+    ):
+        history = await _load_message_history("sess-current")
+    assert history == []
+
+
+async def test_load_history_non_empty_session_does_not_query_previous():
+    # Session already has messages — should NOT call _fetch_previous_session_summary
+    current_cm, _ = _make_session_cm(_make_messages(4), summary=None)
+    with (
+        patch("backend.main.AsyncSessionLocal", return_value=current_cm),
+        patch(
+            "backend.main._fetch_previous_session_summary",
+            new_callable=AsyncMock,
+            return_value="Should not be used.",
+        ) as mock_fetch,
+    ):
+        history = await _load_message_history("sess-current")
+    mock_fetch.assert_not_awaited()
+    assert len(history) == 4  # just the 4 real messages, no context prefix
+
+
+async def test_load_history_session_with_own_summary_does_not_query_previous():
+    # Session has its own summary — no need to look at previous sessions
+    current_cm, _ = _make_session_cm([], summary="My own summary.")
+    with (
+        patch("backend.main.AsyncSessionLocal", return_value=current_cm),
+        patch(
+            "backend.main._fetch_previous_session_summary",
+            new_callable=AsyncMock,
+        ) as mock_fetch,
+    ):
+        history = await _load_message_history("sess-current")
+    mock_fetch.assert_not_awaited()
+    assert "My own summary." in history[0]["content"]

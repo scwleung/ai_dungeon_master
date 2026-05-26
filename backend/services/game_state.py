@@ -4,6 +4,16 @@ In-memory game state management for active D&D sessions.
 State lives only while the server is running — it is NOT persisted to the
 database.  Persistent data (messages, character HP/inventory, world state)
 is written to the DB through the router/WebSocket handler.
+
+Classes:
+  Combatant         — A single participant in a combat encounter (name, HP,
+                      initiative, conditions, optional character_id).
+  CombatState       — Full combat snapshot: active flag, round number, turn
+                      index, and ordered combatant list.  advance() cycles
+                      turns and increments the round counter automatically.
+  PendingRoll       — A roll request sent to a player that is awaiting a result.
+  GameStateManager  — Singleton that owns per-session PendingRoll and
+                      CombatState dictionaries, plus connected-player tracking.
 """
 
 from __future__ import annotations

@@ -14,9 +14,13 @@ A full-stack web application that uses the Anthropic Claude API to act as an int
 | **Voice output (TTS)** | ElevenLabs, OpenAI TTS, or browser Web Speech API |
 | **Dice camera** | Camera feed analysed by Claude Vision to detect physical dice rolls |
 | **Dungeon map** | Procedurally generated BSP dungeon with fog of war; the DM reveals rooms as players explore |
+| **Combat tracker** | Real-time initiative order, HP bars, and condition badges pushed via WebSocket as the DM starts/advances/ends combat |
+| **NPC tracker** | Persistent NPC registry (attitude, faction, location, notes) maintained by the DM and displayed in a sidebar panel |
+| **Scene illustration** | DALL-E 3 generates atmospheric scene images at key narrative moments; displayed as a dismissable hero banner |
+| **Session journal** | Reverse-chronological summaries of past sessions, surfaced in the Campaign Detail view |
 | **Multiplayer** | Solo, local co-op, or remote — all players share one session via WebSocket |
 | **Character management** | Full character sheets with HP tracking, inventory, conditions, and stat modifiers |
-| **Persistent campaigns** | Campaigns, sessions, characters, world state, and dungeon maps saved to SQLite |
+| **Persistent campaigns** | Campaigns, sessions, characters, world state, dungeon maps, and NPC registries saved to SQLite |
 | **Session continuity** | Rolling-window summarisation keeps long sessions within the Claude context window; summaries carry forward into new sessions |
 | **Campaign auth** | Each campaign has an access code that gates write operations |
 | **Rulesets** | D&D 5th Edition, Pathfinder 2e, or Freeform (DM judgment mode) |
@@ -46,23 +50,29 @@ A full-stack web application that uses the Anthropic Claude API to act as an int
 │                                                              │
 │  DungeonMaster ──► Anthropic SDK (streaming + tool use)      │
 │  DungeonGenerator ──► BSP map + Kruskal MST corridors        │
+│  ImageService ──► OpenAI DALL-E 3 (scene illustrations)      │
 │  SessionHub ──► per-room WebSocket broadcast                 │
-│  GameStateManager ──► in-memory pending rolls                │
+│  GameStateManager ──► in-memory rolls + CombatState          │
 │  Async SQLAlchemy 2 + aiosqlite ──► SQLite                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### DM Tool Use
 
-Claude has five tools it may invoke while generating a response:
+Claude has ten tools it may invoke while generating a response:
 
-| Tool | What it does |
-|---|---|
-| `roll_dice` | Server rolls dice (`NdX+M`) and broadcasts result to all players |
-| `request_player_roll` | Suspends generation, asks a specific player to roll, awaits their result |
-| `update_character` | Applies HP delta, adds/removes items or conditions, appends notes |
-| `update_world_state` | Merges key-value facts into the campaign's persistent world state |
-| `reveal_area` | Marks a dungeon room as explored and broadcasts a `map_update` to lift fog of war |
+| Tool | Category | What it does |
+|---|---|---|
+| `roll_dice` | Dice | Server rolls dice (`NdX+M`) and broadcasts result to all players |
+| `request_player_roll` | Dice | Suspends generation, asks a specific player to roll, awaits their result |
+| `update_character` | State | Applies HP delta, adds/removes items or conditions, appends notes |
+| `update_world_state` | State | Merges key-value facts into the campaign's persistent world state |
+| `reveal_area` | Map | Marks a dungeon room as explored and broadcasts a `map_update` to lift fog of war |
+| `start_combat` | Combat | Begins a new encounter with a list of combatants and their initiatives; broadcasts `combat_update` |
+| `next_turn` | Combat | Advances initiative order to the next combatant; increments round at end of rotation; broadcasts `combat_update` |
+| `end_combat` | Combat | Clears the active encounter; broadcasts a `combat_update` with `active: false` |
+| `upsert_npc` | NPCs | Adds or updates an NPC (name, faction, attitude, location, notes) in the campaign registry; broadcasts `npc_update` |
+| `generate_scene_image` | Illustration | Calls DALL-E 3 to generate an atmospheric scene image; broadcasts `scene_image` |
 
 ### Context Management
 
@@ -79,6 +89,24 @@ The map is generated once per campaign using a Binary Space Partitioning (BSP) a
 - Rooms are connected by L-shaped corridors using Kruskal's Minimum Spanning Tree algorithm so every room is reachable with no redundant paths.
 - Four room archetypes — **entrance**, **boss**, **treasure**, and **generic** — are assigned deterministically from curated name pools.
 - **Fog of war**: only rooms listed in `explored_rooms` (and corridors reachable from them) are visible. The DM calls `reveal_area` to update the list; clients receive a `map_update` WebSocket push and re-render immediately.
+
+### Combat Tracker
+
+Combat state is managed in memory by `GameStateManager.CombatState` (not persisted). When the DM calls `start_combat` the server:
+
+1. Sorts combatants by initiative descending.
+2. Broadcasts a `combat_update` WebSocket message to all players.
+3. The frontend auto-opens the Combat Tracker sidebar panel.
+
+Subsequent `next_turn` calls advance the tracker (and increment the round at the end of each rotation); `end_combat` clears it. HP and conditions within the tracker come from the combatants list supplied by the DM tool call — player character HP is also updated through the existing `update_character` tool.
+
+### NPC Tracker
+
+NPCs are stored as a JSON array in the `campaign.npcs` column. The DM calls `upsert_npc` to add or update an entry; existing records are matched by `id` (a snake_case slug). The full registry is broadcast as `npc_update` after every change and displayed in the NPC Tracker sidebar panel grouped by attitude (friendly / neutral / hostile / unknown).
+
+### Scene Illustration
+
+When the DM calls `generate_scene_image` the server sends a description string to DALL-E 3 (via the OpenAI REST API) with a fantasy art style prefix, then broadcasts the resulting image URL as a `scene_image` WebSocket message. The frontend shows the image as a full-width dismissable hero banner above the narrative log. Scene generation requires `OPENAI_API_KEY` to be set; if the key is absent the tool raises an error which the DM can narrate around.
 
 ### Campaign Authentication
 
@@ -152,7 +180,7 @@ Copy `.env.example` to `.env` and fill in the values.
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | **Yes** | — | Key for the Claude API (DM brain, dice vision, summarisation) |
 | `ELEVENLABS_API_KEY` | No | — | Enables ElevenLabs TTS in the provider list |
-| `OPENAI_API_KEY` | No | — | Enables OpenAI TTS in the provider list |
+| `OPENAI_API_KEY` | No | — | Enables OpenAI TTS and DALL-E 3 scene illustration |
 | `DATABASE_URL` | No | `sqlite+aiosqlite:///./dungeon_master.db` | SQLAlchemy async database URL |
 | `CORS_ORIGINS` | No | `http://localhost:5173` | Comma-separated allowed CORS origins |
 
@@ -177,14 +205,15 @@ ai_dungeon_master/
 │   ├── services/
 │   │   ├── dm_brain.py         # DungeonMaster class — Claude streaming + tool use
 │   │   ├── map_generator.py    # BSP dungeon generator with Kruskal MST corridors
-│   │   ├── game_state.py       # In-memory session/player/pending-roll state
+│   │   ├── game_state.py       # In-memory rolls, CombatState, and player tracking
+│   │   ├── image_service.py    # DALL-E 3 scene illustration via OpenAI REST API
 │   │   └── tts_service.py      # TTS provider abstraction (ElevenLabs / OpenAI)
 │   └── ws/
 │       └── session_hub.py      # WebSocket room manager and broadcaster
 ├── frontend/
 │   └── src/
-│       ├── api/client.ts       # Typed REST API client (campaigns, sessions, characters, map)
-│       ├── store/gameStore.ts  # Zustand global state (campaigns, session, characters, map)
+│       ├── api/client.ts       # Typed REST API client (campaigns, sessions, characters, map, NPCs)
+│       ├── store/gameStore.ts  # Zustand global state (campaigns, session, characters, map, combat, NPCs)
 │       ├── hooks/
 │       │   ├── useWebSocket.ts         # WebSocket connection with exponential backoff
 │       │   ├── useTTS.ts               # Text-to-speech (ElevenLabs / OpenAI / browser)
@@ -195,12 +224,15 @@ ai_dungeon_master/
 │       │   ├── PlayerInput.tsx     # Text/voice action input with send button
 │       │   ├── CharacterSheet.tsx  # HP adjuster, inventory, conditions panel
 │       │   ├── DungeonMap.tsx      # Canvas dungeon map with fog-of-war and pan/zoom
+│       │   ├── CombatTracker.tsx   # Initiative order, HP bars, conditions sidebar
+│       │   ├── NPCTracker.tsx      # NPC registry panel grouped by attitude
+│       │   ├── SessionJournal.tsx  # Collapsible past-session summaries in Campaign Detail
 │       │   ├── DiceCamera.tsx      # Camera capture + Claude Vision dice detection
 │       │   ├── DMVoice.tsx         # TTS controls and speaking indicator
 │       │   ├── MicButton.tsx       # Push-to-talk microphone button
 │       │   ├── CampaignList.tsx    # Campaign browser with create/delete/continue
 │       │   ├── CampaignSetup.tsx   # New-campaign form (name, ruleset, description)
-│       │   ├── CampaignDetail.tsx  # Campaign overview (characters, sessions)
+│       │   ├── CampaignDetail.tsx  # Campaign overview + Journal tab (characters, sessions)
 │       │   ├── CharacterForm.tsx   # New-character form with HP suggestion
 │       │   ├── Header.tsx          # Top navigation bar with theme switcher
 │       │   └── ThemeSwitcher.tsx   # Fantasy / HUD / Minimal theme toggle
@@ -209,10 +241,12 @@ ai_dungeon_master/
 │   ├── conftest.py             # In-memory SQLite fixtures and httpx test client
 │   ├── test_campaigns.py       # Campaign and session REST API tests
 │   ├── test_characters.py      # Character REST API tests
+│   ├── test_combat_tracker.py  # CombatState / GameStateManager combat unit tests
 │   ├── test_context_management.py  # Rolling-window summarisation + cross-session continuity
 │   ├── test_dm_brain.py        # DungeonMaster unit tests (mocked Anthropic SDK)
 │   ├── test_game_state.py      # GameStateManager unit tests
 │   ├── test_map_generator.py   # BSP dungeon generator unit tests
+│   ├── test_npc_router.py      # NPC REST endpoint integration tests
 │   ├── test_roll_result.py     # Dice notation parser tests
 │   ├── test_session_hub.py     # SessionHub WebSocket broadcast tests
 │   ├── test_tts_router.py      # TTS router integration tests
@@ -243,6 +277,7 @@ All endpoints are prefixed with `/api`.
 | `PUT` | `/api/campaigns/sessions/{session_id}/end` | ✓ | End an active session |
 | `GET` | `/api/campaigns/{id}/map` | — | Get dungeon map (auto-generates on first call) |
 | `POST` | `/api/campaigns/{id}/map/generate` | ✓ | Regenerate the dungeon map |
+| `GET` | `/api/campaigns/{id}/npcs` | — | List all NPCs for a campaign |
 
 ### Characters
 
@@ -295,6 +330,10 @@ The `access_code` query parameter is required; the connection is closed with cod
 | `dice_result` | `dice`, `values`, `modifier`, `total`, `roller`, `secret?` | A roll result (DM or player) |
 | `state_update` | `character?`, `world_state?` | Live character or world state update after a tool call |
 | `map_update` | `explored_rooms` | Updated list of explored room IDs after `reveal_area` |
+| `combat_update` | `active`, `round`, `turn_index`, `combatants` | Full combat tracker state after `start_combat`, `next_turn`, or `end_combat` |
+| `npc_update` | `npcs` | Full NPC registry for the campaign after `upsert_npc` |
+| `scene_image` | `url`, `description` | AI-generated scene illustration after `generate_scene_image` |
+| `system` | `text` | Generic server notice (session lifecycle, player joins/leaves) |
 | `error` | `message` | Error description |
 
 ---
@@ -308,7 +347,7 @@ The `access_code` query parameter is required; the connection is closed with cod
 pytest
 ```
 
-269 tests covering REST endpoints, WebSocket integration, DM brain (mocked Claude), dice rolling, session hub, TTS service, game state, context management, and the dungeon map generator.
+279 tests covering REST endpoints, WebSocket integration, DM brain (mocked Claude), dice rolling, session hub, TTS service, game state, combat tracker, NPC router, context management, and the dungeon map generator.
 
 ### Frontend
 
@@ -352,7 +391,10 @@ Themes are implemented via CSS custom properties on `document.body` and persiste
 
 - The frontend dev server proxies `/api` and `/ws` to `http://localhost:8000` via Vite's built-in proxy.
 - The Anthropic API key is never exposed to the browser; all Claude calls happen server-side.
-- `GameStateManager` holds in-memory session state (pending rolls, connected players) that is **not** persisted across server restarts. Persistent data (messages, character HP, world state, dungeon maps) is always written to the database immediately.
+- `GameStateManager` holds in-memory session state (pending rolls, combat tracker, connected players) that is **not** persisted across server restarts. Persistent data (messages, character HP, world state, dungeon maps, NPC registry) is always written to the database immediately.
 - Dice rolls triggered by Claude tools are server-side only. Camera-detected and manual rolls come from the client and are trusted as submitted.
 - The dungeon map is generated once per campaign and stored in `campaign.map_data`. Use `POST /api/campaigns/{id}/map/generate` (with access code) to regenerate it; note that this resets `explored_rooms` too.
+- Combat state lives only in memory. If the server restarts mid-combat the tracker will be empty on reconnect, though character HP already updated by `update_character` tool calls is persisted normally.
+- Scene illustration requires `OPENAI_API_KEY`. If the key is absent, `generate_scene_image` raises a `RuntimeError` which surfaces as a system error message in the narrative log; the session continues normally.
+- NPC records are stored in the `campaign.npcs` JSON column. The DM's `upsert_npc` tool matches existing NPCs by `id` (a snake_case slug) so repeat calls update rather than duplicate.
 - Context summarisation uses `claude-haiku-4-5-20251001` for cost efficiency. The rolling threshold and keep-recent window are configurable via `SUMMARY_THRESHOLD` and `SUMMARY_KEEP_RECENT` in `backend/main.py`.

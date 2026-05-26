@@ -13,10 +13,8 @@ WebSocket message types (client → server):
   voice_transcript     STT-derived text, treated same as player_action
   dice_image           Base64 image for dice vision detection
   manual_roll          Player's manual dice result for a pending roll request
-  dice_result          Player submitting a dice-camera result
 
 WebSocket message types (server → client):
-  joined               Confirms join_session
   player_joined        Broadcast when someone joins
   player_left          Broadcast when someone disconnects
   dm_chunk             Streaming text fragment from Claude
@@ -25,6 +23,10 @@ WebSocket message types (server → client):
   dice_request         Request for a specific player to roll
   state_update         Character stat update broadcast
   map_update           Fog-of-war update: newly explored room IDs
+  combat_update        Full combat tracker state (active, round, turn, combatants)
+  npc_update           Full NPC registry for the campaign
+  scene_image          URL of an AI-generated scene illustration
+  system               Generic server notice (e.g. session lifecycle events)
   error                Error message
 
 Context management:

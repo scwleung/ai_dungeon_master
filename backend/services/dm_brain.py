@@ -1,8 +1,43 @@
 """
 Core Claude integration for the AI Dungeon Master application.
 
-This module provides the DungeonMaster class which wraps the Anthropic API
-with streaming support, tool use, and vision capabilities for dice detection.
+Provides the DungeonMaster class which wraps the Anthropic streaming API with
+tool use and Claude Vision support for physical dice detection.
+
+DM tools available to Claude during narration:
+
+  Dice & rolls:
+    roll_dice            — Server-side dice roll broadcast to all players.
+    request_player_roll  — Suspends generation and asks a specific player to roll.
+
+  Character & world state:
+    update_character     — Applies HP delta, inventory changes, and conditions.
+    update_world_state   — Merges key-value facts into the campaign's world state.
+
+  Dungeon map:
+    reveal_area          — Marks a room as explored and lifts fog of war via
+                           a `map_update` WebSocket broadcast.
+
+  Combat tracking:
+    start_combat         — Initialises a new combat encounter with combatants
+                           and their initiatives; broadcasts `combat_update`.
+    next_turn            — Advances initiative order to the next combatant;
+                           broadcasts `combat_update`.
+    end_combat           — Clears the active combat state; broadcasts `combat_update`.
+
+  NPC registry:
+    upsert_npc           — Adds or updates an NPC record (name, faction, attitude,
+                           location, notes); broadcasts `npc_update`.
+
+  Scene illustration:
+    generate_scene_image — Calls DALL-E 3 to produce an atmospheric image for
+                           the current scene; broadcasts `scene_image`.
+
+Context management:
+  When a session exceeds SUMMARY_THRESHOLD messages, the DungeonMaster
+  compresses the oldest messages into a `session_summary` using
+  claude-haiku-4-5-20251001 and drops them from the active context window,
+  keeping the most recent SUMMARY_KEEP_RECENT messages verbatim.
 """
 
 from __future__ import annotations

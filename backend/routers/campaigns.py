@@ -35,6 +35,7 @@ from backend.models.campaign import (
     SessionResponse,
 )
 from backend.models.character import Character
+from backend.services.map_generator import generate_dungeon
 
 router = APIRouter()
 
@@ -242,6 +243,59 @@ async def start_session(
     db.add(session)
     await db.flush()
     return SessionResponse.model_validate(session)
+
+
+# ---------------------------------------------------------------------------
+# Map endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{campaign_id}/map")
+async def get_map(campaign_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the campaign dungeon map, auto-generating one if none exists yet."""
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Campaign {campaign_id!r} not found",
+        )
+
+    if not campaign.map_data:
+        map_dict = generate_dungeon()
+        campaign.map_data = json.dumps(map_dict)
+        await db.flush()
+        await db.commit()
+    else:
+        try:
+            map_dict = json.loads(campaign.map_data)
+        except (json.JSONDecodeError, TypeError):
+            map_dict = {}
+
+    return {"campaign_id": campaign_id, "map_data": map_dict}
+
+
+@router.post("/{campaign_id}/map/generate", status_code=status.HTTP_201_CREATED)
+async def generate_map(
+    campaign_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_campaign_access),
+):
+    """Regenerate the dungeon map for a campaign (requires access code)."""
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Campaign {campaign_id!r} not found",
+        )
+
+    map_dict = generate_dungeon()
+    campaign.map_data = json.dumps(map_dict)
+    await db.flush()
+    await db.commit()
+
+    return {"campaign_id": campaign_id, "map_data": map_dict}
 
 
 @router.put("/sessions/{session_id}/end", response_model=SessionResponse)

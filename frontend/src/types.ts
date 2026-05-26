@@ -279,6 +279,50 @@ export interface WsSystem {
   text: string
 }
 
+/** A single room in the procedurally generated dungeon map. */
+export interface MapRoom {
+  /** Unique identifier used in `explored_rooms` and the `reveal_area` DM tool. */
+  id: string
+  /** Human-readable room name (e.g. "The Treasury"). */
+  name: string
+  /** Room archetype that determines its colour on the map canvas. */
+  type: 'entrance' | 'boss' | 'treasure' | 'generic'
+  /** Left-most tile column of the room. */
+  x: number
+  /** Top-most tile row of the room. */
+  y: number
+  /** Room width in tiles. */
+  w: number
+  /** Room height in tiles. */
+  h: number
+}
+
+/** Full dungeon map state stored on the campaign and rendered by DungeonMap. */
+export interface MapData {
+  /** RNG seed used to generate this map (for reproducibility). */
+  seed: number
+  /** Grid width in tiles. */
+  width: number
+  /** Grid height in tiles. */
+  height: number
+  /**
+   * 2-D tile array indexed [row][col].
+   * Values: 0=wall, 1=floor, 2=corridor.
+   */
+  grid: number[][]
+  /** All rooms in the dungeon. */
+  rooms: MapRoom[]
+  /** IDs of rooms that have been revealed to the players (fog of war). */
+  explored_rooms: string[]
+}
+
+/** Server push when the DM reveals a new dungeon area via the `reveal_area` tool. */
+export interface WsMapUpdate {
+  type: 'map_update'
+  /** Full updated list of revealed room IDs. */
+  explored_rooms: string[]
+}
+
 /** Union of all messages the server may push to the client over the WebSocket. */
 export type WsServerMessage =
   | WsDmChunk
@@ -291,3 +335,4 @@ export type WsServerMessage =
   | WsPlayerLeft
   | WsError
   | WsSystem
+  | WsMapUpdate

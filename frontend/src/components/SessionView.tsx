@@ -6,6 +6,7 @@ import { PlayerInput } from './PlayerInput'
 import { CharacterSheet } from './CharacterSheet'
 import { DiceCamera } from './DiceCamera'
 import { DMVoice } from './DMVoice'
+import { DungeonMap } from './DungeonMap'
 
 /**
  * Root layout for an active play session.
@@ -37,6 +38,7 @@ export function SessionView() {
 
   const [showDiceCamera, setShowDiceCamera] = useState(false)
   const [showCharPanel, setShowCharPanel] = useState(true)
+  const [showMapPanel, setShowMapPanel] = useState(false)
   const [endingSession, setEndingSession] = useState(false)
   const [endError, setEndError] = useState<string | null>(null)
 
@@ -105,6 +107,13 @@ export function SessionView() {
         </div>
 
         <div className="session-actions">
+          <button
+            className={`map-toggle-btn btn-ghost btn-sm ${showMapPanel ? 'active' : ''}`}
+            onClick={() => setShowMapPanel((v) => !v)}
+            title={showMapPanel ? 'Hide dungeon map' : 'Show dungeon map'}
+          >
+            ⬡ Map
+          </button>
           {myCharacter && (
             <button
               className={`char-toggle-btn btn-ghost btn-sm ${showCharPanel ? 'active' : ''}`}
@@ -139,6 +148,13 @@ export function SessionView() {
             connected={connected}
           />
         </div>
+
+        {/* Right Panel: Dungeon Map */}
+        {showMapPanel && (
+          <div className="map-panel">
+            <DungeonMap onClose={() => setShowMapPanel(false)} />
+          </div>
+        )}
 
         {/* Right Panel: Character Sheet */}
         {myCharacter && showCharPanel && (
@@ -266,9 +282,20 @@ export function SessionView() {
           flex-shrink: 0;
         }
 
-        .char-toggle-btn.active {
+        .char-toggle-btn.active,
+        .map-toggle-btn.active {
           border-color: var(--accent);
           color: var(--accent);
+        }
+
+        .map-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
         }
 
         .session-error {
@@ -302,7 +329,8 @@ export function SessionView() {
         }
 
         @media (max-width: 900px) {
-          .char-sheet-panel {
+          .char-sheet-panel,
+          .map-panel {
             position: fixed;
             top: var(--header-height);
             right: 0;

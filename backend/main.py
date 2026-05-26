@@ -410,6 +410,36 @@ async def _update_character_in_db(character_id: str, tool_input: dict) -> str:
         return "; ".join(changes) if changes else f"No changes made to {char.name}."
 
 
+async def _reveal_area_in_db(campaign_id: str, room_id: str) -> tuple[str, list[str]]:
+    """Add room_id to explored_rooms in campaign.map_data and return (message, explored_list)."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+        campaign = result.scalar_one_or_none()
+        if campaign is None:
+            return f"Campaign {campaign_id!r} not found.", []
+
+        if not campaign.map_data:
+            return "No map data available for this campaign.", []
+
+        try:
+            map_dict: dict = json.loads(campaign.map_data)
+        except (json.JSONDecodeError, TypeError):
+            return "Map data is corrupted.", []
+
+        explored: list[str] = map_dict.get("explored_rooms", [])
+        rooms: list[dict] = map_dict.get("rooms", [])
+
+        room_name = next((r["name"] for r in rooms if r["id"] == room_id), room_id)
+
+        if room_id not in explored:
+            explored.append(room_id)
+            map_dict["explored_rooms"] = explored
+            campaign.map_data = json.dumps(map_dict)
+            await db.commit()
+
+        return f"Revealed '{room_name}' ({room_id}). Players' maps updated.", explored
+
+
 async def _update_world_state_in_db(campaign_id: str, updates: dict) -> str:
     """Apply world state key-value updates to the campaign in the DB."""
     async with AsyncSessionLocal() as db:
@@ -608,6 +638,20 @@ async def websocket_endpoint(
             if not updates:
                 return "No updates provided for update_world_state."
             return await _update_world_state_in_db(campaign_id, updates)
+
+        elif tool_name == "reveal_area":
+            if campaign_id is None:
+                return "Cannot reveal area: no campaign associated with this session."
+            room_id = tool_input.get("room_id", "")
+            if not room_id:
+                return "Missing room_id for reveal_area tool."
+            message, explored = await _reveal_area_in_db(campaign_id, room_id)
+            if explored:
+                await session_hub.broadcast(
+                    session_id,
+                    {"type": "map_update", "explored_rooms": explored},
+                )
+            return message
 
         return f"Unknown tool: {tool_name}"
 

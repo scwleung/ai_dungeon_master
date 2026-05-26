@@ -5,6 +5,7 @@ import type {
   Campaign,
   Character,
   GameSettings,
+  MapData,
   NarrativeMessage,
   RulesetName,
   Session,
@@ -188,6 +189,17 @@ export interface GameStore {
   sessions: Session[]
   /** Fetch the session history for a campaign from the server. */
   loadSessions: (campaignId: string) => Promise<void>
+
+  // Dungeon map
+
+  /** Current campaign's dungeon map; `null` until loaded. */
+  mapData: MapData | null
+  /** Fetch (or auto-generate) the dungeon map for a campaign. */
+  loadMap: (campaignId: string) => Promise<void>
+  /** Force-regenerate the dungeon map for a campaign (requires access code). */
+  generateMap: (campaignId: string) => Promise<void>
+  /** Overwrite the local map state (used by the WebSocket map_update handler). */
+  setMapData: (data: MapData | null) => void
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -304,4 +316,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const res = await api.sessions.list(campaignId)
     set({ sessions: res.data })
   },
+
+  // Dungeon map
+  mapData: null,
+  loadMap: async (campaignId) => {
+    const res = await api.map.get(campaignId)
+    set({ mapData: res.map_data })
+  },
+  generateMap: async (campaignId) => {
+    const res = await api.map.generate(campaignId)
+    set({ mapData: res.map_data })
+  },
+  setMapData: (data) => set({ mapData: data }),
 }))

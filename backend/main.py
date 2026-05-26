@@ -24,7 +24,14 @@ WebSocket message types (server → client):
   dice_result          DM or player dice roll result
   dice_request         Request for a specific player to roll
   state_update         Character stat update broadcast
+  map_update           Fog-of-war update: newly explored room IDs
   error                Error message
+
+Context management:
+  Rolling-window summarisation compresses old messages into session_summary
+  when a session exceeds SUMMARY_THRESHOLD messages, keeping the most recent
+  SUMMARY_KEEP_RECENT messages verbatim.  Cross-session continuity inherits
+  the previous session's summary when a new session is started.
 """
 
 from __future__ import annotations

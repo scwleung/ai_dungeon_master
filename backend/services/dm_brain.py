@@ -238,15 +238,19 @@ class DungeonMaster:
     Wraps ``AsyncAnthropic`` to provide:
 
     * **System-prompt generation** — builds a rich, ruleset-aware prompt from
-      campaign data, world state, and the current character roster.
+      campaign data, world state, character roster, and dungeon map status.
     * **Streaming narration** — yields text chunks from Claude in real time
       while transparently handling multi-turn tool-use loops.
-    * **Four Claude tools** exposed to the model:
-        - ``roll_dice`` — DM-side secret or visible rolls.
-        - ``request_player_roll`` — suspends generation until a player submits
-          a result through the WebSocket.
+    * **Five Claude tools** exposed to the model:
+        - ``roll_dice`` — DM-side secret or visible dice rolls.
+        - ``request_player_roll`` — suspends generation until a specific
+          player submits a result through the WebSocket.
         - ``update_character`` — mutates HP, inventory, and conditions in the DB.
         - ``update_world_state`` — persists key/value facts about the world.
+        - ``reveal_area`` — lifts fog of war on a dungeon room and broadcasts
+          a ``map_update`` WebSocket message to all players.
+    * **Context summarisation** — condenses older session messages into a
+      compact narrative summary via ``summarize_history`` (claude-haiku).
     * **Vision-based dice detection** — reads a camera frame and returns the
       face values of any physical dice it can see.
 

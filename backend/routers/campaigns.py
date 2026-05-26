@@ -1,15 +1,26 @@
 """
-Campaign and Session REST endpoints for the AI Dungeon Master application.
+Campaign, Session, and Dungeon Map REST endpoints.
 
-Routes:
-    GET    /                           List all campaigns
-    POST   /                           Create a new campaign
-    GET    /{campaign_id}              Get a single campaign
-    PUT    /{campaign_id}              Update campaign name/description
-    DELETE /{campaign_id}             Delete campaign and related data
-    GET    /{campaign_id}/sessions     List sessions for a campaign
-    POST   /{campaign_id}/sessions     Start a new session
-    PUT    /sessions/{session_id}/end  Mark a session as ended
+Campaign routes:
+    GET    /                               List all campaigns
+    POST   /                               Create a new campaign
+    GET    /{campaign_id}                  Get a single campaign
+    PUT    /{campaign_id}                  Update campaign name/description (auth required)
+    DELETE /{campaign_id}                  Delete campaign and all related data (auth required)
+
+Session routes:
+    GET    /{campaign_id}/sessions         List sessions for a campaign
+    POST   /{campaign_id}/sessions         Start a new session (auth required)
+    PUT    /sessions/{session_id}/end      Mark a session as ended (auth required)
+
+Dungeon map routes:
+    GET    /{campaign_id}/map              Return the campaign's dungeon map; auto-generates
+                                           one the first time it is requested.
+    POST   /{campaign_id}/map/generate     Force-regenerate the dungeon map (auth required).
+
+Authentication: write operations require the campaign's access code in the
+``X-Access-Code`` request header (generated at campaign creation time and
+returned in the campaign response).
 """
 
 from __future__ import annotations

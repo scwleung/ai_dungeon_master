@@ -4,9 +4,11 @@ import { useWebSocket } from '../hooks/useWebSocket'
 import { NarrativeLog } from './NarrativeLog'
 import { PlayerInput } from './PlayerInput'
 import { CharacterSheet } from './CharacterSheet'
+import { CombatTracker } from './CombatTracker'
 import { DiceCamera } from './DiceCamera'
 import { DMVoice } from './DMVoice'
 import { DungeonMap } from './DungeonMap'
+import { NPCTracker } from './NPCTracker'
 
 /**
  * Root layout for an active play session.
@@ -31,6 +33,9 @@ export function SessionView() {
     characters,
     activePlayers,
     pendingRoll,
+    combatActive,
+    sceneImage,
+    setSceneImage,
     updateCharacter,
     endSession,
     setView,
@@ -39,6 +44,8 @@ export function SessionView() {
   const [showDiceCamera, setShowDiceCamera] = useState(false)
   const [showCharPanel, setShowCharPanel] = useState(true)
   const [showMapPanel, setShowMapPanel] = useState(false)
+  const [showCombatPanel, setShowCombatPanel] = useState(false)
+  const [showNpcPanel, setShowNpcPanel] = useState(false)
   const [endingSession, setEndingSession] = useState(false)
   const [endError, setEndError] = useState<string | null>(null)
 
@@ -51,6 +58,13 @@ export function SessionView() {
       setShowDiceCamera(true)
     }
   }, [pendingRoll])
+
+  // Auto-show combat panel when combat starts
+  useEffect(() => {
+    if (combatActive) {
+      setShowCombatPanel(true)
+    }
+  }, [combatActive])
 
   // Find current player's character
   const myCharacter = characters.find(
@@ -114,13 +128,27 @@ export function SessionView() {
           >
             ⬡ Map
           </button>
+          <button
+            className={`combat-toggle-btn btn-ghost btn-sm ${showCombatPanel ? 'active' : ''} ${combatActive ? 'combat-active-indicator' : ''}`}
+            onClick={() => setShowCombatPanel((v) => !v)}
+            title={showCombatPanel ? 'Hide combat tracker' : 'Show combat tracker'}
+          >
+            ⚔ Combat{combatActive ? ' ●' : ''}
+          </button>
+          <button
+            className={`npc-toggle-btn btn-ghost btn-sm ${showNpcPanel ? 'active' : ''}`}
+            onClick={() => setShowNpcPanel((v) => !v)}
+            title={showNpcPanel ? 'Hide NPC tracker' : 'Show NPC tracker'}
+          >
+            ◈ NPCs
+          </button>
           {myCharacter && (
             <button
               className={`char-toggle-btn btn-ghost btn-sm ${showCharPanel ? 'active' : ''}`}
               onClick={() => setShowCharPanel((v) => !v)}
               title={showCharPanel ? 'Hide character sheet' : 'Show character sheet'}
             >
-              ⚔ Sheet
+              ☰ Sheet
             </button>
           )}
           <button
@@ -140,6 +168,27 @@ export function SessionView() {
       <div className="session-main">
         {/* Left Panel: Narrative + Input */}
         <div className="narrative-panel">
+          {/* Scene Image Hero Banner */}
+          {sceneImage && (
+            <div className="scene-image-banner">
+              <button
+                className="scene-image-dismiss"
+                onClick={() => setSceneImage(null)}
+                title="Dismiss scene image"
+                aria-label="Dismiss scene image"
+              >
+                ✕
+              </button>
+              <img
+                src={sceneImage.url}
+                alt={sceneImage.description}
+                className="scene-image-img"
+              />
+              {sceneImage.description && (
+                <div className="scene-image-caption">{sceneImage.description}</div>
+              )}
+            </div>
+          )}
           <NarrativeLog />
           <PlayerInput
             onSendAction={sendAction}
@@ -148,6 +197,20 @@ export function SessionView() {
             connected={connected}
           />
         </div>
+
+        {/* Right Panel: Combat Tracker */}
+        {showCombatPanel && (
+          <div className="combat-panel">
+            <CombatTracker onClose={() => setShowCombatPanel(false)} />
+          </div>
+        )}
+
+        {/* Right Panel: NPC Tracker */}
+        {showNpcPanel && (
+          <div className="npc-panel">
+            <NPCTracker onClose={() => setShowNpcPanel(false)} />
+          </div>
+        )}
 
         {/* Right Panel: Dungeon Map */}
         {showMapPanel && (
@@ -283,9 +346,20 @@ export function SessionView() {
         }
 
         .char-toggle-btn.active,
-        .map-toggle-btn.active {
+        .map-toggle-btn.active,
+        .combat-toggle-btn.active,
+        .npc-toggle-btn.active {
           border-color: var(--accent);
           color: var(--accent);
+        }
+
+        .combat-active-indicator {
+          color: var(--accent-danger);
+        }
+
+        .combat-active-indicator.active {
+          border-color: var(--accent-danger);
+          color: var(--accent-danger);
         }
 
         .map-panel {
@@ -296,6 +370,78 @@ export function SessionView() {
           flex-direction: column;
           border-left: 1px solid var(--border);
           animation: slideIn 0.2s ease;
+        }
+
+        .combat-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        .npc-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        /* Scene image hero banner */
+        .scene-image-banner {
+          position: relative;
+          flex-shrink: 0;
+          background: var(--bg-secondary);
+          border-bottom: 1px solid var(--border);
+          overflow: hidden;
+          max-height: 320px;
+        }
+
+        .scene-image-img {
+          width: 100%;
+          max-height: 280px;
+          object-fit: cover;
+          display: block;
+        }
+
+        .scene-image-caption {
+          padding: var(--space-2) var(--space-4);
+          font-size: var(--font-size-xs);
+          color: var(--text-muted);
+          font-style: italic;
+          background: rgba(0, 0, 0, 0.6);
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+        }
+
+        .scene-image-dismiss {
+          position: absolute;
+          top: var(--space-2);
+          right: var(--space-2);
+          z-index: 10;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          background: rgba(0, 0, 0, 0.6);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          color: rgba(255, 255, 255, 0.9);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: var(--font-size-xs);
+          transition: background var(--transition);
+        }
+
+        .scene-image-dismiss:hover {
+          background: rgba(0, 0, 0, 0.85);
         }
 
         .session-error {
@@ -330,7 +476,9 @@ export function SessionView() {
 
         @media (max-width: 900px) {
           .char-sheet-panel,
-          .map-panel {
+          .map-panel,
+          .combat-panel,
+          .npc-panel {
             position: fixed;
             top: var(--header-height);
             right: 0;

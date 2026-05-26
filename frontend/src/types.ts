@@ -323,6 +323,71 @@ export interface WsMapUpdate {
   explored_rooms: string[]
 }
 
+/** A single combatant in a combat encounter tracked by the server. */
+export interface Combatant {
+  /** Display name of the combatant. */
+  name: string
+  /** Initiative roll result; higher acts first. */
+  initiative: number
+  /** Current hit points. */
+  hp_current: number
+  /** Maximum hit points. */
+  hp_max: number
+  /** Whether this combatant is a player character. */
+  is_player: boolean
+  /** Character UUID if the combatant is a player character; null otherwise. */
+  character_id: string | null
+  /** Active status conditions (e.g. "Poisoned"). */
+  conditions: string[]
+}
+
+/** Server push carrying the full combat tracker state. */
+export interface WsCombatUpdate {
+  type: 'combat_update'
+  /** Whether a combat encounter is currently active. */
+  active: boolean
+  /** Current round number (starts at 1). */
+  round: number
+  /** Index into `combatants` for whose turn it currently is. */
+  turn_index: number
+  /** Ordered combatant list, sorted by initiative descending. */
+  combatants: Combatant[]
+}
+
+/** An NPC tracked in the campaign registry. */
+export interface NPC {
+  /** Unique slug identifier for this NPC (snake_case). */
+  id: string
+  /** Display name. */
+  name: string
+  /** Faction or affiliation; empty string if none. */
+  faction: string
+  /** Current attitude towards the party. */
+  attitude: 'friendly' | 'neutral' | 'hostile' | 'unknown'
+  /** Last known location; empty string if unknown. */
+  location: string
+  /** Physical description or key traits. */
+  description: string
+  /** Campaign-specific notes. */
+  notes: string
+}
+
+/** Server push when the NPC registry is created or updated. */
+export interface WsNpcUpdate {
+  type: 'npc_update'
+  /** Full updated NPC list for the campaign. */
+  npcs: NPC[]
+}
+
+/** Server push when a scene image has been generated and should be displayed. */
+export interface WsSceneImage {
+  type: 'scene_image'
+  /** URL of the generated image. */
+  url: string
+  /** The description text used to generate the image. */
+  description: string
+}
+
 /** Union of all messages the server may push to the client over the WebSocket. */
 export type WsServerMessage =
   | WsDmChunk
@@ -336,3 +401,6 @@ export type WsServerMessage =
   | WsError
   | WsSystem
   | WsMapUpdate
+  | WsCombatUpdate
+  | WsNpcUpdate
+  | WsSceneImage

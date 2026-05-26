@@ -4,9 +4,11 @@ import type {
   AppView,
   Campaign,
   Character,
+  Combatant,
   GameSettings,
   MapData,
   NarrativeMessage,
+  NPC,
   RulesetName,
   Session,
   ThemeName,
@@ -200,6 +202,35 @@ export interface GameStore {
   generateMap: (campaignId: string) => Promise<void>
   /** Overwrite the local map state (used by the WebSocket map_update handler). */
   setMapData: (data: MapData | null) => void
+
+  // Combat tracker
+
+  /** Whether a combat encounter is currently active. */
+  combatActive: boolean
+  /** Current round number. */
+  combatRound: number
+  /** Index into combatants for whose turn it is. */
+  combatTurnIndex: number
+  /** Ordered list of combatants sorted by initiative descending. */
+  combatants: Combatant[]
+  /** Update combat state from a combat_update WebSocket message. */
+  setCombatState: (active: boolean, round: number, turnIndex: number, combatants: Combatant[]) => void
+
+  // NPC tracker
+
+  /** NPCs for the active campaign. */
+  npcs: NPC[]
+  /** Fetch NPCs for a campaign from the server. */
+  loadNpcs: (campaignId: string) => Promise<void>
+  /** Replace the local NPC list (used by the WebSocket npc_update handler). */
+  setNpcs: (npcs: NPC[]) => void
+
+  // Scene illustration
+
+  /** Current scene image; `null` when no image is displayed. */
+  sceneImage: { url: string; description: string } | null
+  /** Set or clear the scene image. */
+  setSceneImage: (img: { url: string; description: string } | null) => void
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -328,4 +359,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ mapData: res.map_data })
   },
   setMapData: (data) => set({ mapData: data }),
+
+  // Combat tracker
+  combatActive: false,
+  combatRound: 1,
+  combatTurnIndex: 0,
+  combatants: [],
+  setCombatState: (active, round, turnIndex, combatants) =>
+    set({ combatActive: active, combatRound: round, combatTurnIndex: turnIndex, combatants }),
+
+  // NPC tracker
+  npcs: [],
+  loadNpcs: async (campaignId) => {
+    const res = await api.npcs.list(campaignId)
+    set({ npcs: res.npcs })
+  },
+  setNpcs: (npcs) => set({ npcs }),
+
+  // Scene illustration
+  sceneImage: null,
+  setSceneImage: (img) => set({ sceneImage: img }),
 }))

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { CharacterForm } from './CharacterForm'
+import { SessionJournal } from './SessionJournal'
 import type { Character, Session } from '../types'
 
 const RULESET_LABELS: Record<string, string> = {
@@ -134,6 +135,7 @@ export function CampaignDetail() {
   const [showCharForm, setShowCharForm] = useState(false)
   const [startingSession, setStartingSession] = useState(false)
   const [sessionError, setSessionError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'overview' | 'journal'>('overview')
 
   if (!activeCampaign) return null
 
@@ -210,54 +212,84 @@ export function CampaignDetail() {
         <WorldState worldState={activeCampaign.world_state} />
       </div>
 
-      <div className="campaign-detail-body">
-        {/* Characters Section */}
-        <section className="detail-section">
-          <div className="detail-section-header">
-            <h2>Characters</h2>
-            <button className="btn-ghost btn-sm" onClick={() => setShowCharForm(true)}>
-              + Add Character
-            </button>
-          </div>
+      {/* Tab Bar */}
+      <div className="detail-tabs">
+        <button
+          className={`detail-tab ${activeTab === 'overview' ? 'detail-tab--active' : ''}`}
+          onClick={() => setActiveTab('overview')}
+        >
+          Overview
+        </button>
+        <button
+          className={`detail-tab ${activeTab === 'journal' ? 'detail-tab--active' : ''}`}
+          onClick={() => setActiveTab('journal')}
+        >
+          Journal
+        </button>
+      </div>
 
-          {characters.length === 0 ? (
-            <div className="detail-empty">
-              <p>No characters yet. Add a character before starting a session.</p>
-              <button className="btn-primary" onClick={() => setShowCharForm(true)}>
-                Create Character
+      {activeTab === 'overview' ? (
+        <div className="campaign-detail-body">
+          {/* Characters Section */}
+          <section className="detail-section">
+            <div className="detail-section-header">
+              <h2>Characters</h2>
+              <button className="btn-ghost btn-sm" onClick={() => setShowCharForm(true)}>
+                + Add Character
               </button>
             </div>
-          ) : (
-            <div className="char-list">
-              {characters.map((c) => (
-                <CharacterRow key={c.id} character={c} />
-              ))}
-            </div>
-          )}
-        </section>
 
-        {/* Sessions Section */}
-        <section className="detail-section">
-          <div className="detail-section-header">
-            <h2>Session History</h2>
-            <button className="btn-ghost btn-sm" onClick={handleReloadSessions}>
-              ↻ Refresh
-            </button>
-          </div>
+            {characters.length === 0 ? (
+              <div className="detail-empty">
+                <p>No characters yet. Add a character before starting a session.</p>
+                <button className="btn-primary" onClick={() => setShowCharForm(true)}>
+                  Create Character
+                </button>
+              </div>
+            ) : (
+              <div className="char-list">
+                {characters.map((c) => (
+                  <CharacterRow key={c.id} character={c} />
+                ))}
+              </div>
+            )}
+          </section>
 
-          {sortedSessions.length === 0 ? (
-            <div className="detail-empty">
-              <p>No sessions yet. Start your first adventure!</p>
+          {/* Sessions Section */}
+          <section className="detail-section">
+            <div className="detail-section-header">
+              <h2>Session History</h2>
+              <button className="btn-ghost btn-sm" onClick={handleReloadSessions}>
+                ↻ Refresh
+              </button>
             </div>
-          ) : (
-            <div className="session-list">
-              {sortedSessions.map((s) => (
-                <SessionRow key={s.id} session={s} />
-              ))}
+
+            {sortedSessions.length === 0 ? (
+              <div className="detail-empty">
+                <p>No sessions yet. Start your first adventure!</p>
+              </div>
+            ) : (
+              <div className="session-list">
+                {sortedSessions.map((s) => (
+                  <SessionRow key={s.id} session={s} />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : (
+        <div className="campaign-detail-body">
+          <section className="detail-section">
+            <div className="detail-section-header">
+              <h2>Session Journal</h2>
+              <button className="btn-ghost btn-sm" onClick={handleReloadSessions}>
+                ↻ Refresh
+              </button>
             </div>
-          )}
-        </section>
-      </div>
+            <SessionJournal />
+          </section>
+        </div>
+      )}
 
       {showCharForm && (
         <CharacterForm
@@ -355,6 +387,37 @@ export function CampaignDetail() {
         .ws-val {
           font-size: var(--font-size-sm);
           color: var(--text-primary);
+        }
+
+        .detail-tabs {
+          display: flex;
+          gap: 0;
+          padding: 0 var(--space-8);
+          border-bottom: 1px solid var(--border);
+          background: var(--bg-panel);
+          flex-shrink: 0;
+        }
+
+        .detail-tab {
+          padding: var(--space-3) var(--space-5);
+          background: none;
+          border: none;
+          border-bottom: 2px solid transparent;
+          cursor: pointer;
+          font-size: var(--font-size-sm);
+          font-weight: 600;
+          color: var(--text-muted);
+          transition: all var(--transition);
+          margin-bottom: -1px;
+        }
+
+        .detail-tab:hover {
+          color: var(--text-secondary);
+        }
+
+        .detail-tab--active {
+          color: var(--accent);
+          border-bottom-color: var(--accent);
         }
 
         .campaign-detail-body {

@@ -69,6 +69,8 @@ class Campaign(Base):
     world_state: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     access_code: Mapped[str] = mapped_column(String(12), nullable=False, default=generate_access_code)
     map_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    npcs: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    quests: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     characters: Mapped[list["Character"]] = relationship(  # type: ignore[name-defined]
         "Character",

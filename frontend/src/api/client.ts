@@ -1,4 +1,4 @@
-import type { Campaign, Character, CharacterUpdate, MapData, Session } from '../types'
+import type { Campaign, Character, CharacterUpdate, MapData, NPC, Quest, Session } from '../types'
 
 const BASE = ''
 
@@ -114,6 +114,38 @@ export const api = {
     /** Force-regenerate the dungeon map (requires access code). */
     generate: (campaignId: string) =>
       request<{ campaign_id: string; map_data: MapData }>('POST', `/api/campaigns/${campaignId}/map/generate`),
+  },
+
+  /** NPC registry operations. */
+  npcs: {
+    /** Fetch all NPCs for a campaign. */
+    list: (campaignId: string) =>
+      request<{ campaign_id: string; npcs: NPC[] }>('GET', `/api/campaigns/${campaignId}/npcs`),
+  },
+
+  /** Quest log operations. */
+  quests: {
+    /** Fetch all quests for a campaign. */
+    list: (campaignId: string) =>
+      request<{ campaign_id: string; quests: Quest[] }>('GET', `/api/campaigns/${campaignId}/quests`),
+  },
+
+  /** Combat tracker REST controls. */
+  combat: {
+    /** Advance the initiative order to the next combatant. */
+    nextTurn: (sessionId: string) =>
+      request<void>('POST', `/api/sessions/${sessionId}/combat/next-turn`),
+    /** End the current combat encounter. */
+    endCombat: (sessionId: string) =>
+      request<void>('POST', `/api/sessions/${sessionId}/combat/end`),
+    /** Add a combatant to the active encounter. */
+    addCombatant: (sessionId: string, data: {
+      name: string; initiative: number; hp_current: number; hp_max: number;
+      is_player?: boolean; character_id?: string | null
+    }) => request<void>('POST', `/api/sessions/${sessionId}/combat/combatants`, data),
+    /** Remove a combatant from the active encounter by name. */
+    removeCombatant: (sessionId: string, name: string) =>
+      request<void>('DELETE', `/api/sessions/${sessionId}/combat/combatants/${encodeURIComponent(name)}`),
   },
 
   /** Text-to-speech operations. */

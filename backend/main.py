@@ -13,10 +13,8 @@ WebSocket message types (client → server):
   voice_transcript     STT-derived text, treated same as player_action
   dice_image           Base64 image for dice vision detection
   manual_roll          Player's manual dice result for a pending roll request
-  dice_result          Player submitting a dice-camera result
 
 WebSocket message types (server → client):
-  joined               Confirms join_session
   player_joined        Broadcast when someone joins
   player_left          Broadcast when someone disconnects
   dm_chunk             Streaming text fragment from Claude
@@ -25,6 +23,11 @@ WebSocket message types (server → client):
   dice_request         Request for a specific player to roll
   state_update         Character stat update broadcast
   map_update           Fog-of-war update: newly explored room IDs
+  combat_update        Full combat tracker state (active, round, turn, combatants)
+  npc_update           Full NPC registry for the campaign
+  quest_update         Full quest log for the campaign
+  scene_image          URL of an AI-generated scene illustration
+  system               Generic server notice (e.g. session lifecycle events)
   error                Error message
 
 Context management:
@@ -58,6 +61,7 @@ from backend.models.campaign import Session as GameSession
 from backend.models.character import Character
 from backend.models.roll_result import roll_dice, RollResult
 from backend.routers import campaigns, characters, tts as tts_router
+from backend.routers import combat as combat_router
 from backend.services.dm_brain import DungeonMaster
 from backend.services.game_state import PendingRoll, game_state_manager
 from backend.ws.session_hub import session_hub
@@ -103,6 +107,7 @@ app.add_middleware(
 app.include_router(campaigns.router, prefix="/api/campaigns", tags=["campaigns"])
 app.include_router(characters.router, prefix="/api", tags=["characters"])
 app.include_router(tts_router.router, prefix="/api/tts", tags=["tts"])
+app.include_router(combat_router.router)
 
 # ---------------------------------------------------------------------------
 # DM brain singleton (shared across all WS connections)
@@ -447,6 +452,73 @@ async def _reveal_area_in_db(campaign_id: str, room_id: str) -> tuple[str, list[
         return f"Revealed '{room_name}' ({room_id}). Players' maps updated.", explored
 
 
+async def _upsert_npc_in_db(campaign_id: str, npc_data: dict) -> tuple[str, list[dict]]:
+    """Upsert an NPC in campaign.npcs JSON and return (message, npcs_list)."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+        campaign = result.scalar_one_or_none()
+        if campaign is None:
+            return f"Campaign {campaign_id!r} not found.", []
+        try:
+            npcs: list[dict] = json.loads(campaign.npcs or "[]")
+        except (json.JSONDecodeError, TypeError):
+            npcs = []
+        npc_id = npc_data.get("npc_id", "")
+        if not npc_id:
+            return "Missing npc_id.", npcs
+        npc = {
+            "id": npc_id,
+            "name": npc_data.get("name", "Unknown"),
+            "faction": npc_data.get("faction", ""),
+            "attitude": npc_data.get("attitude", "unknown"),
+            "location": npc_data.get("location", ""),
+            "description": npc_data.get("description", ""),
+            "notes": npc_data.get("notes", ""),
+        }
+        existing_idx = next((i for i, n in enumerate(npcs) if n.get("id") == npc_id), None)
+        if existing_idx is not None:
+            npcs[existing_idx] = npc
+            action = "updated"
+        else:
+            npcs.append(npc)
+            action = "added"
+        campaign.npcs = json.dumps(npcs)
+        await db.commit()
+        return f"NPC '{npc['name']}' {action}.", npcs
+
+
+async def _upsert_quest_in_db(campaign_id: str, quest_data: dict) -> tuple[str, list[dict]]:
+    """Upsert a quest in campaign.quests JSON and return (message, quests_list)."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+        campaign = result.scalar_one_or_none()
+        if campaign is None:
+            return f"Campaign {campaign_id!r} not found.", []
+        try:
+            quests: list[dict] = json.loads(campaign.quests or "[]")
+        except (json.JSONDecodeError, TypeError):
+            quests = []
+        quest_id = quest_data.get("quest_id", "")
+        if not quest_id:
+            return "Missing quest_id.", quests
+        quest = {
+            "id": quest_id,
+            "name": quest_data.get("name", "Unknown"),
+            "status": quest_data.get("status", "active"),
+            "description": quest_data.get("description", ""),
+        }
+        existing_idx = next((i for i, q in enumerate(quests) if q.get("id") == quest_id), None)
+        if existing_idx is not None:
+            quests[existing_idx] = quest
+            action = "updated"
+        else:
+            quests.append(quest)
+            action = "added"
+        campaign.quests = json.dumps(quests)
+        await db.commit()
+        return f"Quest '{quest['name']}' {action}.", quests
+
+
 async def _update_world_state_in_db(campaign_id: str, updates: dict) -> str:
     """Apply world state key-value updates to the campaign in the DB."""
     async with AsyncSessionLocal() as db:
@@ -659,6 +731,52 @@ async def websocket_endpoint(
                     {"type": "map_update", "explored_rooms": explored},
                 )
             return message
+
+        elif tool_name == "start_combat":
+            combatants_data = tool_input.get("combatants", [])
+            state = game_state_manager.start_combat(session_id, combatants_data)
+            await session_hub.broadcast(session_id, {"type": "combat_update", **state.to_dict()})
+            current = state.current_combatant()
+            return f"Combat started with {len(state.combatants)} combatants. First turn: {current.name if current else 'none'}."
+
+        elif tool_name == "next_turn":
+            state = game_state_manager.advance_turn(session_id)
+            await session_hub.broadcast(session_id, {"type": "combat_update", **state.to_dict()})
+            current = state.current_combatant()
+            return f"Round {state.round}, turn: {current.name if current else 'none'}."
+
+        elif tool_name == "end_combat":
+            game_state_manager.end_combat(session_id)
+            await session_hub.broadcast(session_id, {"type": "combat_update", "active": False, "round": 1, "turn_index": 0, "combatants": []})
+            return "Combat ended."
+
+        elif tool_name == "upsert_npc":
+            if campaign_id is None:
+                return "No campaign associated with this session."
+            message, npcs = await _upsert_npc_in_db(campaign_id, tool_input)
+            if npcs is not None:
+                await session_hub.broadcast(session_id, {"type": "npc_update", "npcs": npcs})
+            return message
+
+        elif tool_name == "upsert_quest":
+            if campaign_id is None:
+                return "No campaign associated with this session."
+            message, quests = await _upsert_quest_in_db(campaign_id, tool_input)
+            if quests is not None:
+                await session_hub.broadcast(session_id, {"type": "quest_update", "quests": quests})
+            return message
+
+        elif tool_name == "generate_scene_image":
+            description = tool_input.get("description", "")
+            if not description:
+                return "No description provided."
+            try:
+                from backend.services.image_service import generate_scene_image as gen_image
+                url = await gen_image(description)
+                await session_hub.broadcast(session_id, {"type": "scene_image", "url": url, "description": description})
+                return "Scene image generated and displayed to all players."
+            except Exception as exc:
+                return f"Image generation unavailable: {exc}"
 
         return f"Unknown tool: {tool_name}"
 

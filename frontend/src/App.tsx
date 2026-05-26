@@ -11,7 +11,7 @@ import './themes/hud.css'
 import './themes/minimal.css'
 
 export default function App() {
-  const { view, settings, loadCampaigns } = useGameStore()
+  const { view, settings, loadCampaigns, storeCampaignToken, setActiveCampaign, setView } = useGameStore()
 
   // Apply the saved theme on mount and whenever settings.theme changes
   useEffect(() => {
@@ -25,6 +25,32 @@ export default function App() {
       console.error('Failed to load campaigns:', err)
     })
   }, [loadCampaigns])
+
+  // Handle invite URL params on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const campaignId = params.get('campaign')
+    const code = params.get('code')
+    if (campaignId && code) {
+      storeCampaignToken(campaignId, code)
+      loadCampaigns()
+        .then(() => {
+          const { campaigns } = useGameStore.getState()
+          const campaign = campaigns.find((c) => c.id === campaignId)
+          if (campaign) {
+            setActiveCampaign(campaign)
+            setView('campaign_detail')
+          }
+        })
+        .catch(() => {})
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (params.get('session') && code) {
+      const sessionCode = code
+      storeCampaignToken('', sessionCode)
+      loadCampaigns().catch(() => {})
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="app-root">

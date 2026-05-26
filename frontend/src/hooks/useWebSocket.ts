@@ -253,6 +253,26 @@ export function useWebSocket(sessionId: string | null) {
           }))
           break
         }
+
+        case 'combat_update': {
+          s.setCombatState(msg.active, msg.round, msg.turn_index, msg.combatants)
+          break
+        }
+
+        case 'npc_update': {
+          s.setNpcs(msg.npcs)
+          break
+        }
+
+        case 'quest_update': {
+          s.setQuests(msg.quests)
+          break
+        }
+
+        case 'scene_image': {
+          s.setSceneImage({ url: msg.url, description: msg.description })
+          break
+        }
       }
     }
   }, [sessionId])

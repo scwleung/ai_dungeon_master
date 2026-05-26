@@ -616,3 +616,17 @@ hr {
 .hp-bar-fill.high { background: var(--hp-high); }
 .hp-bar-fill.mid  { background: var(--hp-mid); }
 .hp-bar-fill.low  { background: var(--hp-low); }
+
+/* =============================================
+   MOBILE TOUCH TARGETS
+   ============================================= */
+
+@media (max-width: 768px) {
+  button {
+    min-height: 44px;
+  }
+
+  .btn-sm {
+    min-height: 36px;
+  }
+}

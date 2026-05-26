@@ -46,6 +46,9 @@ function StreamingMessage({ text }: { text: string }) {
  * cursor is appended below the history. The log auto-scrolls to the bottom when
  * new content arrives, unless the user has manually scrolled up.
  *
+ * `overscroll-behavior: contain` and `-webkit-overflow-scrolling: touch` are
+ * applied to prevent page bounce on iOS when the log reaches its scroll boundary.
+ *
  * Reads `messages` and `streamingText` from the Zustand store; no props are required.
  */
 export function NarrativeLog() {
@@ -81,6 +84,7 @@ export function NarrativeLog() {
       onScroll={handleScroll}
       aria-live="polite"
       aria-label="Story log"
+      style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
     >
       {messages.length === 0 && !streamingText && (
         <div className="log-empty">

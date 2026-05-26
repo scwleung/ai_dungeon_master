@@ -4,22 +4,36 @@ import { useWebSocket } from '../hooks/useWebSocket'
 import { NarrativeLog } from './NarrativeLog'
 import { PlayerInput } from './PlayerInput'
 import { CharacterSheet } from './CharacterSheet'
+import { CombatTracker } from './CombatTracker'
 import { DiceCamera } from './DiceCamera'
+import { DiceRoller } from './DiceRoller'
 import { DMVoice } from './DMVoice'
 import { DungeonMap } from './DungeonMap'
+import { NPCTracker } from './NPCTracker'
+import { QuestTracker } from './QuestTracker'
 
 /**
  * Root layout for an active play session.
  *
  * Mounts the WebSocket connection via {@link useWebSocket} and arranges the
- * two-panel layout: the left {@link NarrativeLog} + {@link PlayerInput} panel
- * and an optional right {@link CharacterSheet} sidebar for the current player's
- * character. A session top-bar shows the campaign name, connection status,
- * active-player pills, and the "End Session" action.
+ * main layout: a left narrative panel ({@link NarrativeLog} + {@link PlayerInput})
+ * and zero or more right sidebar panels toggled from the session top-bar.
  *
- * When a `pendingRoll` appears in the store the {@link DiceCamera} overlay is
- * displayed automatically. {@link DMVoice} is mounted as a hidden audio driver
- * that auto-plays DM narration via the configured TTS provider.
+ * Available sidebar panels:
+ * - {@link DiceRoller} — virtual dice (auto-opens alongside DiceCamera on `pendingRoll`)
+ * - {@link CharacterSheet} — HP, inventory, conditions for the current player's character
+ * - {@link DungeonMap} — fog-of-war dungeon canvas
+ * - {@link CombatTracker} — initiative order and HP bars (DM controls gated behind `isDM`)
+ * - {@link NPCTracker} — NPC registry grouped by attitude
+ * - {@link QuestTracker} — active/completed/failed quest log
+ *
+ * `isDM` is derived from whether the current client holds a campaign access token
+ * in `campaignTokens`. When true a DM badge is shown in the top-bar, DM-only
+ * combat controls are enabled in the {@link CombatTracker}, and an "🔗 Invite"
+ * button copies a shareable campaign URL to the clipboard.
+ *
+ * {@link DiceCamera} opens as a full-screen overlay when a `pendingRoll` arrives.
+ * {@link DMVoice} is mounted invisibly as a TTS audio driver.
  *
  * Reads all necessary state from the Zustand store; no props are required.
  */
@@ -27,30 +41,58 @@ export function SessionView() {
   const {
     activeSession,
     activeCampaign,
+    campaignTokens,
     settings,
     characters,
     activePlayers,
     pendingRoll,
+    combatActive,
+    quests,
+    sceneImage,
+    setSceneImage,
     updateCharacter,
+    loadQuests,
     endSession,
     setView,
   } = useGameStore()
 
+  const isDM = !!(activeCampaign && campaignTokens[activeCampaign.id])
+
   const [showDiceCamera, setShowDiceCamera] = useState(false)
+  const [showDiceRoller, setShowDiceRoller] = useState(false)
   const [showCharPanel, setShowCharPanel] = useState(true)
   const [showMapPanel, setShowMapPanel] = useState(false)
+  const [showCombatPanel, setShowCombatPanel] = useState(false)
+  const [showNpcPanel, setShowNpcPanel] = useState(false)
+  const [showQuestPanel, setShowQuestPanel] = useState(false)
   const [endingSession, setEndingSession] = useState(false)
   const [endError, setEndError] = useState<string | null>(null)
+  const [copiedInvite, setCopiedInvite] = useState(false)
 
   const { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll } =
     useWebSocket(activeSession?.id ?? null)
 
-  // Auto-show dice camera when a roll is pending
+  // Auto-show dice camera and dice roller when a roll is pending
   useEffect(() => {
     if (pendingRoll) {
       setShowDiceCamera(true)
+      setShowDiceRoller(true)
     }
   }, [pendingRoll])
+
+  // Auto-show combat panel when combat starts
+  useEffect(() => {
+    if (combatActive) {
+      setShowCombatPanel(true)
+    }
+  }, [combatActive])
+
+  // Load existing quests when the session starts
+  useEffect(() => {
+    if (activeCampaign) {
+      loadQuests(activeCampaign.id).catch(() => {})
+    }
+  }, [activeCampaign, loadQuests])
 
   // Find current player's character
   const myCharacter = characters.find(
@@ -67,6 +109,26 @@ export function SessionView() {
       setEndError(err instanceof Error ? err.message : 'Failed to end session.')
       setEndingSession(false)
     }
+  }
+
+  async function handleCopyInvite() {
+    if (!activeCampaign) return
+    const code = campaignTokens[activeCampaign.id] ?? ''
+    const url = `${window.location.origin}${window.location.pathname}?campaign=${activeCampaign.id}&code=${code}`
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      const el = document.createElement('textarea')
+      el.value = url
+      el.style.position = 'fixed'
+      el.style.opacity = '0'
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+    }
+    setCopiedInvite(true)
+    setTimeout(() => setCopiedInvite(false), 1500)
   }
 
   if (!activeSession) {
@@ -90,6 +152,7 @@ export function SessionView() {
             <span className="conn-dot" />
             {connected ? 'Connected' : 'Reconnecting...'}
           </div>
+          {isDM && <span className="dm-badge">DM</span>}
         </div>
 
         {/* Active Players */}
@@ -108,11 +171,39 @@ export function SessionView() {
 
         <div className="session-actions">
           <button
+            className={`dice-toggle-btn btn-ghost btn-sm ${showDiceRoller ? 'active' : ''}`}
+            onClick={() => setShowDiceRoller((v) => !v)}
+            title={showDiceRoller ? 'Hide dice roller' : 'Show dice roller'}
+          >
+            🎲 Dice
+          </button>
+          <button
             className={`map-toggle-btn btn-ghost btn-sm ${showMapPanel ? 'active' : ''}`}
             onClick={() => setShowMapPanel((v) => !v)}
             title={showMapPanel ? 'Hide dungeon map' : 'Show dungeon map'}
           >
             ⬡ Map
+          </button>
+          <button
+            className={`combat-toggle-btn btn-ghost btn-sm ${showCombatPanel ? 'active' : ''} ${combatActive ? 'combat-active-indicator' : ''}`}
+            onClick={() => setShowCombatPanel((v) => !v)}
+            title={showCombatPanel ? 'Hide combat tracker' : 'Show combat tracker'}
+          >
+            ⚔ Combat{combatActive ? ' ●' : ''}
+          </button>
+          <button
+            className={`npc-toggle-btn btn-ghost btn-sm ${showNpcPanel ? 'active' : ''}`}
+            onClick={() => setShowNpcPanel((v) => !v)}
+            title={showNpcPanel ? 'Hide NPC tracker' : 'Show NPC tracker'}
+          >
+            ◈ NPCs
+          </button>
+          <button
+            className={`quest-toggle-btn btn-ghost btn-sm ${showQuestPanel ? 'active' : ''}`}
+            onClick={() => setShowQuestPanel((v) => !v)}
+            title={showQuestPanel ? 'Hide quest log' : 'Show quest log'}
+          >
+            ⚑ Quests{quests.length > 0 ? ` (${quests.length})` : ''}
           </button>
           {myCharacter && (
             <button
@@ -120,7 +211,16 @@ export function SessionView() {
               onClick={() => setShowCharPanel((v) => !v)}
               title={showCharPanel ? 'Hide character sheet' : 'Show character sheet'}
             >
-              ⚔ Sheet
+              ☰ Sheet
+            </button>
+          )}
+          {isDM && (
+            <button
+              className="btn-ghost btn-sm invite-btn"
+              onClick={handleCopyInvite}
+              title="Copy invite link"
+            >
+              {copiedInvite ? 'Copied!' : '🔗 Invite'}
             </button>
           )}
           <button
@@ -140,14 +240,67 @@ export function SessionView() {
       <div className="session-main">
         {/* Left Panel: Narrative + Input */}
         <div className="narrative-panel">
+          {/* Scene Image Hero Banner */}
+          {sceneImage && (
+            <div className="scene-image-banner">
+              <button
+                className="scene-image-dismiss"
+                onClick={() => setSceneImage(null)}
+                title="Dismiss scene image"
+                aria-label="Dismiss scene image"
+              >
+                ✕
+              </button>
+              <img
+                src={sceneImage.url}
+                alt={sceneImage.description}
+                className="scene-image-img"
+              />
+              {sceneImage.description && (
+                <div className="scene-image-caption">{sceneImage.description}</div>
+              )}
+            </div>
+          )}
           <NarrativeLog />
           <PlayerInput
             onSendAction={sendAction}
             onSendVoiceTranscript={sendVoiceTranscript}
             onOpenDiceCamera={() => setShowDiceCamera(true)}
+            onOpenDiceRoller={() => setShowDiceRoller(true)}
             connected={connected}
           />
         </div>
+
+        {/* Right Panel: Dice Roller */}
+        {showDiceRoller && (
+          <DiceRoller
+            pendingRoll={pendingRoll}
+            onSendManualRoll={sendManualRoll}
+            onSendToChat={(text) => sendAction(text)}
+            onClose={() => setShowDiceRoller(false)}
+          />
+        )}
+
+        {/* Right Panel: Combat Tracker */}
+        {showCombatPanel && (
+          <div className="combat-panel">
+            <CombatTracker isDM={isDM} onClose={() => setShowCombatPanel(false)} />
+          </div>
+        )}
+
+        {/* Right Panel: NPC Tracker */}
+        {showNpcPanel && (
+          <div className="npc-panel">
+            <NPCTracker onClose={() => setShowNpcPanel(false)} />
+          </div>
+        )}
+
+        {/* Right Panel: Quest Tracker */}
+        {showQuestPanel && (
+          <div className="quest-panel">
+            <QuestTracker onClose={() => setShowQuestPanel(false)} />
+          </div>
+        )}
 
         {/* Right Panel: Dungeon Map */}
         {showMapPanel && (
@@ -249,6 +402,19 @@ export function SessionView() {
           color: var(--accent-danger);
         }
 
+        .dm-badge {
+          font-size: var(--font-size-xs);
+          font-weight: 700;
+          color: var(--accent);
+          background: rgba(196, 130, 10, 0.15);
+          border: 1px solid var(--accent);
+          border-radius: var(--radius-full);
+          padding: 1px 6px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          flex-shrink: 0;
+        }
+
         .active-players {
           display: flex;
           flex-wrap: wrap;
@@ -283,9 +449,22 @@ export function SessionView() {
         }
 
         .char-toggle-btn.active,
-        .map-toggle-btn.active {
+        .map-toggle-btn.active,
+        .combat-toggle-btn.active,
+        .npc-toggle-btn.active,
+        .quest-toggle-btn.active,
+        .dice-toggle-btn.active {
           border-color: var(--accent);
           color: var(--accent);
+        }
+
+        .combat-active-indicator {
+          color: var(--accent-danger);
+        }
+
+        .combat-active-indicator.active {
+          border-color: var(--accent-danger);
+          color: var(--accent-danger);
         }
 
         .map-panel {
@@ -296,6 +475,88 @@ export function SessionView() {
           flex-direction: column;
           border-left: 1px solid var(--border);
           animation: slideIn 0.2s ease;
+        }
+
+        .combat-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        .npc-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        .quest-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        /* Scene image hero banner */
+        .scene-image-banner {
+          position: relative;
+          flex-shrink: 0;
+          background: var(--bg-secondary);
+          border-bottom: 1px solid var(--border);
+          overflow: hidden;
+          max-height: 320px;
+        }
+
+        .scene-image-img {
+          width: 100%;
+          max-height: 280px;
+          object-fit: cover;
+          display: block;
+        }
+
+        .scene-image-caption {
+          padding: var(--space-2) var(--space-4);
+          font-size: var(--font-size-xs);
+          color: var(--text-muted);
+          font-style: italic;
+          background: rgba(0, 0, 0, 0.6);
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+        }
+
+        .scene-image-dismiss {
+          position: absolute;
+          top: var(--space-2);
+          right: var(--space-2);
+          z-index: 10;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          background: rgba(0, 0, 0, 0.6);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          color: rgba(255, 255, 255, 0.9);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: var(--font-size-xs);
+          transition: background var(--transition);
+        }
+
+        .scene-image-dismiss:hover {
+          background: rgba(0, 0, 0, 0.85);
         }
 
         .session-error {
@@ -330,7 +591,10 @@ export function SessionView() {
 
         @media (max-width: 900px) {
           .char-sheet-panel,
-          .map-panel {
+          .map-panel,
+          .combat-panel,
+          .npc-panel,
+          .quest-panel {
             position: fixed;
             top: var(--header-height);
             right: 0;
@@ -345,6 +609,31 @@ export function SessionView() {
           }
 
           .active-players {
+            display: none;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .session-topbar {
+            flex-direction: column;
+            align-items: stretch;
+            gap: var(--space-2);
+            padding: var(--space-2);
+          }
+
+          .session-info {
+            justify-content: space-between;
+          }
+
+          .session-actions {
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            padding-bottom: 2px;
+          }
+
+          .session-actions::-webkit-scrollbar {
             display: none;
           }
         }

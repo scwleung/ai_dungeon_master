@@ -4,9 +4,12 @@ import type {
   AppView,
   Campaign,
   Character,
+  Combatant,
   GameSettings,
   MapData,
   NarrativeMessage,
+  NPC,
+  Quest,
   RulesetName,
   Session,
   ThemeName,
@@ -130,6 +133,8 @@ export interface GameStore {
   deleteCampaign: (id: string) => Promise<void>
   /** Set the active campaign without making a network request. */
   setActiveCampaign: (c: Campaign | null) => void
+  /** Store a campaign access token and activate it. */
+  storeCampaignToken: (campaignId: string, code: string) => void
 
   // Session
 
@@ -200,6 +205,44 @@ export interface GameStore {
   generateMap: (campaignId: string) => Promise<void>
   /** Overwrite the local map state (used by the WebSocket map_update handler). */
   setMapData: (data: MapData | null) => void
+
+  // Combat tracker
+
+  /** Whether a combat encounter is currently active. */
+  combatActive: boolean
+  /** Current round number. */
+  combatRound: number
+  /** Index into combatants for whose turn it is. */
+  combatTurnIndex: number
+  /** Ordered list of combatants sorted by initiative descending. */
+  combatants: Combatant[]
+  /** Update combat state from a combat_update WebSocket message. */
+  setCombatState: (active: boolean, round: number, turnIndex: number, combatants: Combatant[]) => void
+
+  // NPC tracker
+
+  /** NPCs for the active campaign. */
+  npcs: NPC[]
+  /** Fetch NPCs for a campaign from the server. */
+  loadNpcs: (campaignId: string) => Promise<void>
+  /** Replace the local NPC list (used by the WebSocket npc_update handler). */
+  setNpcs: (npcs: NPC[]) => void
+
+  // Quest tracker
+
+  /** Quests for the active campaign. */
+  quests: Quest[]
+  /** Fetch quests for a campaign from the server. */
+  loadQuests: (campaignId: string) => Promise<void>
+  /** Replace the local quest list (used by the WebSocket quest_update handler). */
+  setQuests: (quests: Quest[]) => void
+
+  // Scene illustration
+
+  /** Current scene image; `null` when no image is displayed. */
+  sceneImage: { url: string; description: string } | null
+  /** Set or clear the scene image. */
+  setSceneImage: (img: { url: string; description: string } | null) => void
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -250,6 +293,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       setAccessCode('')
     }
     set({ activeCampaign: c })
+  },
+  storeCampaignToken: (campaignId, code) => {
+    set((state) => {
+      const tokens = { ...state.campaignTokens, [campaignId]: code }
+      saveCampaignTokens(tokens)
+      return { campaignTokens: tokens }
+    })
+    setAccessCode(code)
   },
 
   // Session
@@ -328,4 +379,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ mapData: res.map_data })
   },
   setMapData: (data) => set({ mapData: data }),
+
+  // Combat tracker
+  combatActive: false,
+  combatRound: 1,
+  combatTurnIndex: 0,
+  combatants: [],
+  setCombatState: (active, round, turnIndex, combatants) =>
+    set({ combatActive: active, combatRound: round, combatTurnIndex: turnIndex, combatants }),
+
+  // NPC tracker
+  npcs: [],
+  loadNpcs: async (campaignId) => {
+    const res = await api.npcs.list(campaignId)
+    set({ npcs: res.npcs })
+  },
+  setNpcs: (npcs) => set({ npcs }),
+
+  // Quest tracker
+  quests: [],
+  loadQuests: async (campaignId) => {
+    const res = await api.quests.list(campaignId)
+    set({ quests: res.quests })
+  },
+  setQuests: (quests) => set({ quests }),
+
+  // Scene illustration
+  sceneImage: null,
+  setSceneImage: (img) => set({ sceneImage: img }),
 }))

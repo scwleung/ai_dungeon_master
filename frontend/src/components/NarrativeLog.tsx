@@ -81,6 +81,7 @@ export function NarrativeLog() {
       onScroll={handleScroll}
       aria-live="polite"
       aria-label="Story log"
+      style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
     >
       {messages.length === 0 && !streamingText && (
         <div className="log-empty">

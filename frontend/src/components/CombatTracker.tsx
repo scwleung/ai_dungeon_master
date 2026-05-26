@@ -13,7 +13,7 @@ import type { Combatant } from '../types'
  * When a session is active, exposes REST controls: Next Turn, End Combat,
  * per-combatant Remove, and an Add Combatant form.
  */
-export function CombatTracker({ onClose }: { onClose: () => void }) {
+export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: boolean }) {
   const { combatActive, combatRound, combatTurnIndex, combatants, activeSession } = useGameStore()
   const sessionId = activeSession?.id ?? null
 
@@ -127,7 +127,7 @@ export function CombatTracker({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
-      {sessionId && (
+      {sessionId && isDM && (
         <div className="combat-controls">
           <button
             className="btn-primary btn-sm"
@@ -157,12 +157,13 @@ export function CombatTracker({ onClose }: { onClose: () => void }) {
             combatant={c}
             isActive={idx === combatTurnIndex}
             sessionId={sessionId}
+            isDM={isDM}
             onRemove={handleRemoveCombatant}
           />
         ))}
       </div>
 
-      {sessionId && (
+      {sessionId && isDM && (
         <div className="combat-add-section">
           {!showAddForm ? (
             <button
@@ -243,11 +244,13 @@ function CombatantRow({
   combatant,
   isActive,
   sessionId,
+  isDM,
   onRemove,
 }: {
   combatant: Combatant
   isActive: boolean
   sessionId: string | null
+  isDM: boolean
   onRemove: (name: string) => void
 }) {
   const hpPct = combatant.hp_max > 0 ? (combatant.hp_current / combatant.hp_max) * 100 : 0
@@ -283,7 +286,7 @@ function CombatantRow({
           />
         </div>
       </div>
-      {sessionId && (
+      {sessionId && isDM && (
         <button
           className="combat-remove-btn btn-ghost"
           onClick={() => onRemove(combatant.name)}

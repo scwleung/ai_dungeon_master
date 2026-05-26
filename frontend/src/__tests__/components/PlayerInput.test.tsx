@@ -33,6 +33,7 @@ function defaultProps(overrides: Partial<Parameters<typeof PlayerInput>[0]> = {}
     onSendAction: vi.fn(),
     onSendVoiceTranscript: vi.fn(),
     onOpenDiceCamera: vi.fn(),
+    onOpenDiceRoller: vi.fn(),
     connected: true,
     ...overrides,
   }

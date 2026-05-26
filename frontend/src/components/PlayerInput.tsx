@@ -6,6 +6,7 @@ interface Props {
   onSendAction: (text: string) => void
   onSendVoiceTranscript: (text: string) => void
   onOpenDiceCamera: () => void
+  onOpenDiceRoller?: () => void
   connected: boolean
 }
 
@@ -26,6 +27,7 @@ export function PlayerInput({
   onSendAction,
   onSendVoiceTranscript,
   onOpenDiceCamera,
+  onOpenDiceRoller,
   connected,
 }: Props) {
   const { streamingText, pendingRoll } = useGameStore()
@@ -78,6 +80,11 @@ export function PlayerInput({
             <button className="btn-ghost btn-sm" onClick={onOpenDiceCamera}>
               ✎ Manual
             </button>
+            {onOpenDiceRoller && (
+              <button className="btn-ghost btn-sm" onClick={onOpenDiceRoller}>
+                🎲 Roll
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -283,7 +290,7 @@ export function PlayerInput({
         .action-textarea {
           flex: 1;
           resize: none;
-          font-size: var(--font-size-base);
+          font-size: max(16px, var(--font-size-base));
           line-height: 1.5;
           min-height: 56px;
           max-height: 160px;
@@ -336,6 +343,20 @@ export function PlayerInput({
           }
           .send-btn {
             padding: 0 var(--space-3);
+          }
+          .pending-roll-banner {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+        }
+
+        @media (max-width: 360px) {
+          .input-row {
+            flex-direction: column;
+            align-items: stretch;
+          }
+          .input-controls {
+            justify-content: flex-end;
           }
         }
       `}</style>

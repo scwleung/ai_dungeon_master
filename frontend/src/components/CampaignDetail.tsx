@@ -126,6 +126,7 @@ export function CampaignDetail() {
     activeCampaign,
     characters,
     sessions,
+    campaignTokens,
     startSession,
     setActiveSession,
     setView,
@@ -133,10 +134,13 @@ export function CampaignDetail() {
     loadQuests,
   } = useGameStore()
 
+  const isDM = !!(activeCampaign && campaignTokens[activeCampaign.id])
+
   const [showCharForm, setShowCharForm] = useState(false)
   const [startingSession, setStartingSession] = useState(false)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'journal'>('overview')
+  const [copiedInvite, setCopiedInvite] = useState(false)
 
   useEffect(() => {
     if (activeCampaign) {
@@ -163,6 +167,26 @@ export function CampaignDetail() {
 
   async function handleCharCreated() {
     setShowCharForm(false)
+  }
+
+  async function handleCopyInvite() {
+    if (!activeCampaign) return
+    const code = campaignTokens[activeCampaign.id] ?? activeCampaign.access_code
+    const url = `${window.location.origin}${window.location.pathname}?campaign=${activeCampaign.id}&code=${code}`
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      const el = document.createElement('textarea')
+      el.value = url
+      el.style.position = 'fixed'
+      el.style.opacity = '0'
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+    }
+    setCopiedInvite(true)
+    setTimeout(() => setCopiedInvite(false), 1500)
   }
 
   async function handleReloadSessions() {
@@ -194,20 +218,31 @@ export function CampaignDetail() {
               </span>
             </div>
           </div>
-          <button
-            className="btn-primary btn-lg start-session-btn"
-            onClick={handleStartSession}
-            disabled={startingSession}
-          >
-            {startingSession ? (
-              <>
-                <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-                Starting...
-              </>
-            ) : (
-              '▶ Start New Session'
+          <div className="campaign-header-actions">
+            {isDM && (
+              <button
+                className="btn-ghost btn-sm copy-invite-btn"
+                onClick={handleCopyInvite}
+                title="Copy invite link"
+              >
+                {copiedInvite ? 'Copied!' : '🔗 Copy Invite'}
+              </button>
             )}
-          </button>
+            <button
+              className="btn-primary btn-lg start-session-btn"
+              onClick={handleStartSession}
+              disabled={startingSession}
+            >
+              {startingSession ? (
+                <>
+                  <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+                  Starting...
+                </>
+              ) : (
+                '▶ Start New Session'
+              )}
+            </button>
+          </div>
         </div>
 
         {activeCampaign.description && (
@@ -353,6 +388,17 @@ export function CampaignDetail() {
           line-height: 1.7;
           max-width: 800px;
           margin-bottom: var(--space-4);
+        }
+
+        .campaign-header-actions {
+          display: flex;
+          align-items: center;
+          gap: var(--space-3);
+          flex-shrink: 0;
+        }
+
+        .copy-invite-btn {
+          white-space: nowrap;
         }
 
         .start-session-btn {

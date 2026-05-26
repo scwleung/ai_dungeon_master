@@ -6,6 +6,7 @@ import { PlayerInput } from './PlayerInput'
 import { CharacterSheet } from './CharacterSheet'
 import { CombatTracker } from './CombatTracker'
 import { DiceCamera } from './DiceCamera'
+import { DiceRoller } from './DiceRoller'
 import { DMVoice } from './DMVoice'
 import { DungeonMap } from './DungeonMap'
 import { NPCTracker } from './NPCTracker'
@@ -30,6 +31,7 @@ export function SessionView() {
   const {
     activeSession,
     activeCampaign,
+    campaignTokens,
     settings,
     characters,
     activePlayers,
@@ -44,7 +46,10 @@ export function SessionView() {
     setView,
   } = useGameStore()
 
+  const isDM = !!(activeCampaign && campaignTokens[activeCampaign.id])
+
   const [showDiceCamera, setShowDiceCamera] = useState(false)
+  const [showDiceRoller, setShowDiceRoller] = useState(false)
   const [showCharPanel, setShowCharPanel] = useState(true)
   const [showMapPanel, setShowMapPanel] = useState(false)
   const [showCombatPanel, setShowCombatPanel] = useState(false)
@@ -52,14 +57,16 @@ export function SessionView() {
   const [showQuestPanel, setShowQuestPanel] = useState(false)
   const [endingSession, setEndingSession] = useState(false)
   const [endError, setEndError] = useState<string | null>(null)
+  const [copiedInvite, setCopiedInvite] = useState(false)
 
   const { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll } =
     useWebSocket(activeSession?.id ?? null)
 
-  // Auto-show dice camera when a roll is pending
+  // Auto-show dice camera and dice roller when a roll is pending
   useEffect(() => {
     if (pendingRoll) {
       setShowDiceCamera(true)
+      setShowDiceRoller(true)
     }
   }, [pendingRoll])
 
@@ -94,6 +101,26 @@ export function SessionView() {
     }
   }
 
+  async function handleCopyInvite() {
+    if (!activeCampaign) return
+    const code = campaignTokens[activeCampaign.id] ?? ''
+    const url = `${window.location.origin}${window.location.pathname}?campaign=${activeCampaign.id}&code=${code}`
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      const el = document.createElement('textarea')
+      el.value = url
+      el.style.position = 'fixed'
+      el.style.opacity = '0'
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+    }
+    setCopiedInvite(true)
+    setTimeout(() => setCopiedInvite(false), 1500)
+  }
+
   if (!activeSession) {
     return (
       <div className="loading-center">
@@ -115,6 +142,7 @@ export function SessionView() {
             <span className="conn-dot" />
             {connected ? 'Connected' : 'Reconnecting...'}
           </div>
+          {isDM && <span className="dm-badge">DM</span>}
         </div>
 
         {/* Active Players */}
@@ -132,6 +160,13 @@ export function SessionView() {
         </div>
 
         <div className="session-actions">
+          <button
+            className={`dice-toggle-btn btn-ghost btn-sm ${showDiceRoller ? 'active' : ''}`}
+            onClick={() => setShowDiceRoller((v) => !v)}
+            title={showDiceRoller ? 'Hide dice roller' : 'Show dice roller'}
+          >
+            🎲 Dice
+          </button>
           <button
             className={`map-toggle-btn btn-ghost btn-sm ${showMapPanel ? 'active' : ''}`}
             onClick={() => setShowMapPanel((v) => !v)}
@@ -167,6 +202,15 @@ export function SessionView() {
               title={showCharPanel ? 'Hide character sheet' : 'Show character sheet'}
             >
               ☰ Sheet
+            </button>
+          )}
+          {isDM && (
+            <button
+              className="btn-ghost btn-sm invite-btn"
+              onClick={handleCopyInvite}
+              title="Copy invite link"
+            >
+              {copiedInvite ? 'Copied!' : '🔗 Invite'}
             </button>
           )}
           <button
@@ -212,14 +256,25 @@ export function SessionView() {
             onSendAction={sendAction}
             onSendVoiceTranscript={sendVoiceTranscript}
             onOpenDiceCamera={() => setShowDiceCamera(true)}
+            onOpenDiceRoller={() => setShowDiceRoller(true)}
             connected={connected}
           />
         </div>
 
+        {/* Right Panel: Dice Roller */}
+        {showDiceRoller && (
+          <DiceRoller
+            pendingRoll={pendingRoll}
+            onSendManualRoll={sendManualRoll}
+            onSendToChat={(text) => sendAction(text)}
+            onClose={() => setShowDiceRoller(false)}
+          />
+        )}
+
         {/* Right Panel: Combat Tracker */}
         {showCombatPanel && (
           <div className="combat-panel">
-            <CombatTracker onClose={() => setShowCombatPanel(false)} />
+            <CombatTracker isDM={isDM} onClose={() => setShowCombatPanel(false)} />
           </div>
         )}
 
@@ -337,6 +392,19 @@ export function SessionView() {
           color: var(--accent-danger);
         }
 
+        .dm-badge {
+          font-size: var(--font-size-xs);
+          font-weight: 700;
+          color: var(--accent);
+          background: rgba(196, 130, 10, 0.15);
+          border: 1px solid var(--accent);
+          border-radius: var(--radius-full);
+          padding: 1px 6px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          flex-shrink: 0;
+        }
+
         .active-players {
           display: flex;
           flex-wrap: wrap;
@@ -374,7 +442,8 @@ export function SessionView() {
         .map-toggle-btn.active,
         .combat-toggle-btn.active,
         .npc-toggle-btn.active,
-        .quest-toggle-btn.active {
+        .quest-toggle-btn.active,
+        .dice-toggle-btn.active {
           border-color: var(--accent);
           color: var(--accent);
         }
@@ -530,6 +599,31 @@ export function SessionView() {
           }
 
           .active-players {
+            display: none;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .session-topbar {
+            flex-direction: column;
+            align-items: stretch;
+            gap: var(--space-2);
+            padding: var(--space-2);
+          }
+
+          .session-info {
+            justify-content: space-between;
+          }
+
+          .session-actions {
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            padding-bottom: 2px;
+          }
+
+          .session-actions::-webkit-scrollbar {
             display: none;
           }
         }

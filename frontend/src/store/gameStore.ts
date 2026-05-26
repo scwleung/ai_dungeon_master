@@ -133,6 +133,8 @@ export interface GameStore {
   deleteCampaign: (id: string) => Promise<void>
   /** Set the active campaign without making a network request. */
   setActiveCampaign: (c: Campaign | null) => void
+  /** Store a campaign access token and activate it. */
+  storeCampaignToken: (campaignId: string, code: string) => void
 
   // Session
 
@@ -291,6 +293,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       setAccessCode('')
     }
     set({ activeCampaign: c })
+  },
+  storeCampaignToken: (campaignId, code) => {
+    set((state) => {
+      const tokens = { ...state.campaignTokens, [campaignId]: code }
+      saveCampaignTokens(tokens)
+      return { campaignTokens: tokens }
+    })
+    setAccessCode(code)
   },
 
   // Session

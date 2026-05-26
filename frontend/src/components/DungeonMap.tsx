@@ -193,6 +193,25 @@ interface DungeonMapProps {
   onClose: () => void
 }
 
+/**
+ * Interactive HTML Canvas dungeon map renderer with fog of war.
+ *
+ * Reads {@link MapData} from the Zustand store (loading it from the server on
+ * first mount if absent) and renders a top-down tile grid on a `<canvas>`:
+ *
+ * - **Tile types** — 0 = wall (#1a1a2e), 1 = floor (colour by room type),
+ *   2 = corridor (#a08860).
+ * - **Room-type colours** — entrance (#4a9fd4 blue), boss (#c0392b red),
+ *   treasure (#f1c40f gold), generic (#c8a87a sand).
+ * - **Fog of war** — tiles in unexplored rooms are hidden (#0d0d0d).  Corridor
+ *   tiles are revealed by BFS from any explored room's floor tiles.  The
+ *   ``explored_rooms`` list is updated in real time via the ``map_update``
+ *   WebSocket message handled in {@link useWebSocket}.
+ * - **Interaction** — click-and-drag to pan; scroll wheel / pinch to zoom;
+ *   "Fit" button to reset the viewport; "New" button to regenerate the map.
+ *
+ * Mounts inside {@link SessionView} as a toggleable right-side panel.
+ */
 export function DungeonMap({ onClose }: DungeonMapProps) {
   const { mapData, activeCampaign, loadMap, generateMap } = useGameStore()
 

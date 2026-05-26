@@ -264,6 +264,11 @@ export function useWebSocket(sessionId: string | null) {
           break
         }
 
+        case 'quest_update': {
+          s.setQuests(msg.quests)
+          break
+        }
+
         case 'scene_image': {
           s.setSceneImage({ url: msg.url, description: msg.description })
           break

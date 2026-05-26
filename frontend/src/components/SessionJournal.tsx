@@ -49,12 +49,28 @@ function JournalEntry({ session }: { session: Session & { session_summary: strin
  * summaries exist yet.
  */
 export function SessionJournal() {
-  const { sessions } = useGameStore()
+  const { sessions, activeCampaign } = useGameStore()
 
   // Only show sessions that have a summary, sorted newest first
   const journalSessions = [...sessions]
     .filter((s): s is Session & { session_summary: string } => Boolean((s as any).session_summary))
     .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+
+  function handleExport() {
+    if (!activeCampaign) return
+    const lines: string[] = [`# Campaign Journal: ${activeCampaign.name}`, '']
+    for (const s of journalSessions) {
+      lines.push(`## Session — ${formatDate(s.started_at)}`, '')
+      lines.push(s.session_summary, '')
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${activeCampaign.name.toLowerCase().replace(/\s+/g, '-')}-journal.md`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   if (journalSessions.length === 0) {
     return (
@@ -70,6 +86,11 @@ export function SessionJournal() {
 
   return (
     <div className="session-journal">
+      <div className="journal-export-row">
+        <button className="btn-ghost btn-sm" onClick={handleExport}>
+          ↓ Export
+        </button>
+      </div>
       <div className="journal-list">
         {journalSessions.map((s) => (
           <JournalEntry key={s.id} session={s} />
@@ -85,6 +106,12 @@ const journalStyles = `
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+  }
+
+  .journal-export-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: var(--space-1);
   }
 
   .journal-list {

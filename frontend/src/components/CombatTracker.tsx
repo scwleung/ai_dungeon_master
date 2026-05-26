@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { api } from '../api/client'
 import { useGameStore } from '../store/gameStore'
 import type { Combatant } from '../types'
 
@@ -7,9 +9,88 @@ import type { Combatant } from '../types'
  * Displays the active combat round, turn order, and HP for each combatant.
  * Receives updates from the server via `combat_update` WebSocket messages which
  * are applied to the Zustand store by {@link useWebSocket}.
+ *
+ * When a session is active, exposes REST controls: Next Turn, End Combat,
+ * per-combatant Remove, and an Add Combatant form.
  */
 export function CombatTracker({ onClose }: { onClose: () => void }) {
-  const { combatActive, combatRound, combatTurnIndex, combatants } = useGameStore()
+  const { combatActive, combatRound, combatTurnIndex, combatants, activeSession } = useGameStore()
+  const sessionId = activeSession?.id ?? null
+
+  const [nextTurnLoading, setNextTurnLoading] = useState(false)
+  const [endCombatLoading, setEndCombatLoading] = useState(false)
+  const [controlError, setControlError] = useState<string | null>(null)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [addName, setAddName] = useState('')
+  const [addInitiative, setAddInitiative] = useState('')
+  const [addHpMax, setAddHpMax] = useState('')
+  const [addHpCurrent, setAddHpCurrent] = useState('')
+  const [addIsPlayer, setAddIsPlayer] = useState(false)
+  const [addLoading, setAddLoading] = useState(false)
+
+  async function handleNextTurn() {
+    if (!sessionId) return
+    setNextTurnLoading(true)
+    setControlError(null)
+    try {
+      await api.combat.nextTurn(sessionId)
+    } catch (err) {
+      setControlError(err instanceof Error ? err.message : 'Failed to advance turn.')
+    } finally {
+      setNextTurnLoading(false)
+    }
+  }
+
+  async function handleEndCombat() {
+    if (!sessionId) return
+    setEndCombatLoading(true)
+    setControlError(null)
+    try {
+      await api.combat.endCombat(sessionId)
+    } catch (err) {
+      setControlError(err instanceof Error ? err.message : 'Failed to end combat.')
+    } finally {
+      setEndCombatLoading(false)
+    }
+  }
+
+  async function handleRemoveCombatant(name: string) {
+    if (!sessionId) return
+    setControlError(null)
+    try {
+      await api.combat.removeCombatant(sessionId, name)
+    } catch (err) {
+      setControlError(err instanceof Error ? err.message : `Failed to remove ${name}.`)
+    }
+  }
+
+  async function handleAddCombatant(e: React.FormEvent) {
+    e.preventDefault()
+    if (!sessionId) return
+    const hpMax = parseInt(addHpMax, 10)
+    const hpCurrent = addHpCurrent !== '' ? parseInt(addHpCurrent, 10) : hpMax
+    setAddLoading(true)
+    setControlError(null)
+    try {
+      await api.combat.addCombatant(sessionId, {
+        name: addName,
+        initiative: parseInt(addInitiative, 10),
+        hp_max: hpMax,
+        hp_current: hpCurrent,
+        is_player: addIsPlayer,
+      })
+      setAddName('')
+      setAddInitiative('')
+      setAddHpMax('')
+      setAddHpCurrent('')
+      setAddIsPlayer(false)
+      setShowAddForm(false)
+    } catch (err) {
+      setControlError(err instanceof Error ? err.message : 'Failed to add combatant.')
+    } finally {
+      setAddLoading(false)
+    }
+  }
 
   if (!combatActive) {
     return (
@@ -41,15 +122,112 @@ export function CombatTracker({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
+      {sessionId && (
+        <div className="combat-controls">
+          <button
+            className="btn-primary btn-sm"
+            onClick={handleNextTurn}
+            disabled={nextTurnLoading}
+          >
+            {nextTurnLoading ? '...' : 'Next Turn'}
+          </button>
+          <button
+            className="btn-danger btn-sm"
+            onClick={handleEndCombat}
+            disabled={endCombatLoading}
+          >
+            {endCombatLoading ? '...' : 'End Combat'}
+          </button>
+        </div>
+      )}
+
+      {controlError && (
+        <div className="combat-control-error">{controlError}</div>
+      )}
+
       <div className="combat-list">
         {combatants.map((c, idx) => (
           <CombatantRow
             key={`${c.name}-${idx}`}
             combatant={c}
             isActive={idx === combatTurnIndex}
+            sessionId={sessionId}
+            onRemove={handleRemoveCombatant}
           />
         ))}
       </div>
+
+      {sessionId && (
+        <div className="combat-add-section">
+          {!showAddForm ? (
+            <button
+              className="btn-ghost btn-sm combat-add-toggle"
+              onClick={() => setShowAddForm(true)}
+            >
+              + Add Combatant
+            </button>
+          ) : (
+            <form className="combat-add-form" onSubmit={handleAddCombatant}>
+              <div className="combat-add-form-title">Add Combatant</div>
+              <input
+                className="combat-add-input"
+                type="text"
+                placeholder="Name"
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                required
+              />
+              <div className="combat-add-row">
+                <input
+                  className="combat-add-input"
+                  type="number"
+                  placeholder="Initiative"
+                  value={addInitiative}
+                  onChange={(e) => setAddInitiative(e.target.value)}
+                  required
+                />
+                <input
+                  className="combat-add-input"
+                  type="number"
+                  placeholder="HP Max"
+                  value={addHpMax}
+                  onChange={(e) => setAddHpMax(e.target.value)}
+                  required
+                  min={1}
+                />
+              </div>
+              <input
+                className="combat-add-input"
+                type="number"
+                placeholder="HP Current (defaults to HP Max)"
+                value={addHpCurrent}
+                onChange={(e) => setAddHpCurrent(e.target.value)}
+                min={0}
+              />
+              <label className="combat-add-checkbox">
+                <input
+                  type="checkbox"
+                  checked={addIsPlayer}
+                  onChange={(e) => setAddIsPlayer(e.target.checked)}
+                />
+                <span>Is Player Character</span>
+              </label>
+              <div className="combat-add-actions">
+                <button type="submit" className="btn-primary btn-sm" disabled={addLoading}>
+                  {addLoading ? '...' : 'Add'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm"
+                  onClick={() => setShowAddForm(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
 
       <style>{combatStyles}</style>
     </div>
@@ -59,9 +237,13 @@ export function CombatTracker({ onClose }: { onClose: () => void }) {
 function CombatantRow({
   combatant,
   isActive,
+  sessionId,
+  onRemove,
 }: {
   combatant: Combatant
   isActive: boolean
+  sessionId: string | null
+  onRemove: (name: string) => void
 }) {
   const hpPct = combatant.hp_max > 0 ? (combatant.hp_current / combatant.hp_max) * 100 : 0
   const hpClass = hpPct > 50 ? 'high' : hpPct > 25 ? 'mid' : 'low'
@@ -96,6 +278,15 @@ function CombatantRow({
           />
         </div>
       </div>
+      {sessionId && (
+        <button
+          className="combat-remove-btn btn-ghost"
+          onClick={() => onRemove(combatant.name)}
+          title={`Remove ${combatant.name}`}
+        >
+          ✕
+        </button>
+      )}
     </div>
   )
 }
@@ -153,6 +344,23 @@ const combatStyles = `
   .combat-empty-sub {
     font-size: var(--font-size-xs);
     font-style: italic;
+  }
+
+  .combat-controls {
+    display: flex;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .combat-control-error {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-size-xs);
+    color: var(--accent-danger);
+    background: rgba(140, 40, 40, 0.08);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
   }
 
   .combat-list {
@@ -288,4 +496,77 @@ const combatStyles = `
   .combat-hp-fill.hp-high { background: var(--hp-high); }
   .combat-hp-fill.hp-mid  { background: var(--hp-mid); }
   .combat-hp-fill.hp-low  { background: var(--hp-low); }
+
+  .combat-remove-btn {
+    padding: 1px 5px;
+    font-size: var(--font-size-xs);
+    flex-shrink: 0;
+    opacity: 0.5;
+    transition: opacity var(--transition);
+  }
+
+  .combat-remove-btn:hover {
+    opacity: 1;
+    color: var(--accent-danger);
+  }
+
+  .combat-add-section {
+    border-top: 1px solid var(--border);
+    padding: var(--space-2) var(--space-3);
+    flex-shrink: 0;
+  }
+
+  .combat-add-toggle {
+    width: 100%;
+  }
+
+  .combat-add-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .combat-add-form-title {
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+
+  .combat-add-input {
+    width: 100%;
+    padding: var(--space-1) var(--space-2);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: var(--font-size-xs);
+    box-sizing: border-box;
+  }
+
+  .combat-add-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .combat-add-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+  }
+
+  .combat-add-checkbox {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .combat-add-actions {
+    display: flex;
+    gap: var(--space-2);
+  }
 `

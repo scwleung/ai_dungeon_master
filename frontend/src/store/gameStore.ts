@@ -9,6 +9,7 @@ import type {
   MapData,
   NarrativeMessage,
   NPC,
+  Quest,
   RulesetName,
   Session,
   ThemeName,
@@ -225,6 +226,15 @@ export interface GameStore {
   /** Replace the local NPC list (used by the WebSocket npc_update handler). */
   setNpcs: (npcs: NPC[]) => void
 
+  // Quest tracker
+
+  /** Quests for the active campaign. */
+  quests: Quest[]
+  /** Fetch quests for a campaign from the server. */
+  loadQuests: (campaignId: string) => Promise<void>
+  /** Replace the local quest list (used by the WebSocket quest_update handler). */
+  setQuests: (quests: Quest[]) => void
+
   // Scene illustration
 
   /** Current scene image; `null` when no image is displayed. */
@@ -375,6 +385,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ npcs: res.npcs })
   },
   setNpcs: (npcs) => set({ npcs }),
+
+  // Quest tracker
+  quests: [],
+  loadQuests: async (campaignId) => {
+    const res = await api.quests.list(campaignId)
+    set({ quests: res.quests })
+  },
+  setQuests: (quests) => set({ quests }),
 
   // Scene illustration
   sceneImage: null,

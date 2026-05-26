@@ -9,6 +9,7 @@ import { DiceCamera } from './DiceCamera'
 import { DMVoice } from './DMVoice'
 import { DungeonMap } from './DungeonMap'
 import { NPCTracker } from './NPCTracker'
+import { QuestTracker } from './QuestTracker'
 
 /**
  * Root layout for an active play session.
@@ -34,6 +35,7 @@ export function SessionView() {
     activePlayers,
     pendingRoll,
     combatActive,
+    quests,
     sceneImage,
     setSceneImage,
     updateCharacter,
@@ -46,6 +48,7 @@ export function SessionView() {
   const [showMapPanel, setShowMapPanel] = useState(false)
   const [showCombatPanel, setShowCombatPanel] = useState(false)
   const [showNpcPanel, setShowNpcPanel] = useState(false)
+  const [showQuestPanel, setShowQuestPanel] = useState(false)
   const [endingSession, setEndingSession] = useState(false)
   const [endError, setEndError] = useState<string | null>(null)
 
@@ -142,6 +145,13 @@ export function SessionView() {
           >
             ◈ NPCs
           </button>
+          <button
+            className={`quest-toggle-btn btn-ghost btn-sm ${showQuestPanel ? 'active' : ''}`}
+            onClick={() => setShowQuestPanel((v) => !v)}
+            title={showQuestPanel ? 'Hide quest log' : 'Show quest log'}
+          >
+            ⚑ Quests{quests.length > 0 ? ` (${quests.length})` : ''}
+          </button>
           {myCharacter && (
             <button
               className={`char-toggle-btn btn-ghost btn-sm ${showCharPanel ? 'active' : ''}`}
@@ -209,6 +219,13 @@ export function SessionView() {
         {showNpcPanel && (
           <div className="npc-panel">
             <NPCTracker onClose={() => setShowNpcPanel(false)} />
+          </div>
+        )}
+
+        {/* Right Panel: Quest Tracker */}
+        {showQuestPanel && (
+          <div className="quest-panel">
+            <QuestTracker onClose={() => setShowQuestPanel(false)} />
           </div>
         )}
 
@@ -348,7 +365,8 @@ export function SessionView() {
         .char-toggle-btn.active,
         .map-toggle-btn.active,
         .combat-toggle-btn.active,
-        .npc-toggle-btn.active {
+        .npc-toggle-btn.active,
+        .quest-toggle-btn.active {
           border-color: var(--accent);
           color: var(--accent);
         }
@@ -383,6 +401,16 @@ export function SessionView() {
         }
 
         .npc-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        .quest-panel {
           width: var(--sidebar-width);
           flex-shrink: 0;
           overflow: hidden;
@@ -478,7 +506,8 @@ export function SessionView() {
           .char-sheet-panel,
           .map-panel,
           .combat-panel,
-          .npc-panel {
+          .npc-panel,
+          .quest-panel {
             position: fixed;
             top: var(--header-height);
             right: 0;

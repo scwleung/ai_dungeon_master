@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { CharacterForm } from './CharacterForm'
 import { SessionJournal } from './SessionJournal'
@@ -130,12 +130,19 @@ export function CampaignDetail() {
     setActiveSession,
     setView,
     loadSessions,
+    loadQuests,
   } = useGameStore()
 
   const [showCharForm, setShowCharForm] = useState(false)
   const [startingSession, setStartingSession] = useState(false)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'journal'>('overview')
+
+  useEffect(() => {
+    if (activeCampaign) {
+      loadQuests(activeCampaign.id).catch(() => {})
+    }
+  }, [activeCampaign, loadQuests])
 
   if (!activeCampaign) return null
 

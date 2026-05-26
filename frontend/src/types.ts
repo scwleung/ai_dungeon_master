@@ -388,6 +388,25 @@ export interface WsSceneImage {
   description: string
 }
 
+/** A quest tracked in the campaign quest log. */
+export interface Quest {
+  /** Unique snake_case slug identifier (e.g. 'rescue_the_miller'). */
+  id: string
+  /** Short display name. */
+  name: string
+  /** Current quest status. */
+  status: 'active' | 'completed' | 'failed'
+  /** Description of what the quest involves and its current state. */
+  description: string
+}
+
+/** Server push when the quest log is created or updated. */
+export interface WsQuestUpdate {
+  type: 'quest_update'
+  /** Full updated quest list for the campaign. */
+  quests: Quest[]
+}
+
 /** Union of all messages the server may push to the client over the WebSocket. */
 export type WsServerMessage =
   | WsDmChunk
@@ -404,3 +423,4 @@ export type WsServerMessage =
   | WsCombatUpdate
   | WsNpcUpdate
   | WsSceneImage
+  | WsQuestUpdate

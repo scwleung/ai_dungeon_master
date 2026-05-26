@@ -118,8 +118,14 @@ function SessionRow({ session }: { session: Session }) {
  * and navigates to the `session` view. Opens the {@link CharacterForm} modal for
  * adding new characters.
  *
- * Reads `activeCampaign`, `characters`, and `sessions` from the Zustand store;
- * no props are required.
+ * When the current client holds a campaign access token (`isDM` is true) a
+ * "🔗 Copy Invite" button is shown. Clicking it writes a
+ * `?campaign=<id>&code=<token>` URL to the clipboard; recipients who open
+ * that link are automatically authenticated and taken to this campaign detail
+ * page. The button shows a "Copied!" flash for 1.5 s on success.
+ *
+ * Reads `activeCampaign`, `characters`, `sessions`, and `campaignTokens` from
+ * the Zustand store; no props are required.
  */
 export function CampaignDetail() {
   const {

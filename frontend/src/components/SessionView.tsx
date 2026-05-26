@@ -16,14 +16,24 @@ import { QuestTracker } from './QuestTracker'
  * Root layout for an active play session.
  *
  * Mounts the WebSocket connection via {@link useWebSocket} and arranges the
- * two-panel layout: the left {@link NarrativeLog} + {@link PlayerInput} panel
- * and an optional right {@link CharacterSheet} sidebar for the current player's
- * character. A session top-bar shows the campaign name, connection status,
- * active-player pills, and the "End Session" action.
+ * main layout: a left narrative panel ({@link NarrativeLog} + {@link PlayerInput})
+ * and zero or more right sidebar panels toggled from the session top-bar.
  *
- * When a `pendingRoll` appears in the store the {@link DiceCamera} overlay is
- * displayed automatically. {@link DMVoice} is mounted as a hidden audio driver
- * that auto-plays DM narration via the configured TTS provider.
+ * Available sidebar panels:
+ * - {@link DiceRoller} — virtual dice (auto-opens alongside DiceCamera on `pendingRoll`)
+ * - {@link CharacterSheet} — HP, inventory, conditions for the current player's character
+ * - {@link DungeonMap} — fog-of-war dungeon canvas
+ * - {@link CombatTracker} — initiative order and HP bars (DM controls gated behind `isDM`)
+ * - {@link NPCTracker} — NPC registry grouped by attitude
+ * - {@link QuestTracker} — active/completed/failed quest log
+ *
+ * `isDM` is derived from whether the current client holds a campaign access token
+ * in `campaignTokens`. When true a DM badge is shown in the top-bar, DM-only
+ * combat controls are enabled in the {@link CombatTracker}, and an "🔗 Invite"
+ * button copies a shareable campaign URL to the clipboard.
+ *
+ * {@link DiceCamera} opens as a full-screen overlay when a `pendingRoll` arrives.
+ * {@link DMVoice} is mounted invisibly as a TTS audio driver.
  *
  * Reads all necessary state from the Zustand store; no props are required.
  */

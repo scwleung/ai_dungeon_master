@@ -13,18 +13,24 @@ A full-stack web application that uses the Anthropic Claude API to act as an int
 | **Voice input (STT)** | Optional microphone input via the Web Speech API |
 | **Voice output (TTS)** | ElevenLabs, OpenAI TTS, or browser Web Speech API |
 | **Dice camera** | Camera feed analysed by Claude Vision to detect physical dice rolls |
+| **Virtual dice roller** | In-browser dice roller (d4–d100) using `crypto.getRandomValues`; pre-selects the correct die when a `pendingRoll` is active and submits the result directly to the DM |
 | **Dungeon map** | Procedurally generated BSP dungeon with fog of war; the DM reveals rooms as players explore |
-| **Combat tracker** | Real-time initiative order, HP bars, and condition badges pushed via WebSocket as the DM starts/advances/ends combat |
+| **Combat tracker** | Real-time initiative order, HP bars, and condition badges pushed via WebSocket; DM-only controls for advancing/ending combat |
 | **NPC tracker** | Persistent NPC registry (attitude, faction, location, notes) maintained by the DM and displayed in a sidebar panel |
+| **Quest tracker** | Active, completed, and failed quest log maintained by the DM via `upsert_quest`; displayed in a sidebar panel |
 | **Scene illustration** | DALL-E 3 generates atmospheric scene images at key narrative moments; displayed as a dismissable hero banner |
 | **Session journal** | Reverse-chronological summaries of past sessions, surfaced in the Campaign Detail view |
+| **Session export** | Download the full narrative log as a plain-text `.txt` file |
 | **Multiplayer** | Solo, local co-op, or remote — all players share one session via WebSocket |
+| **Invite links** | DMs copy a `?campaign=<id>&code=<token>` URL that auto-authenticates and navigates the recipient to the campaign |
+| **DM / player roles** | Whoever holds the campaign access code is the DM; DM-gated UI controls (combat management, invite link) are hidden from other players |
 | **Character management** | Full character sheets with HP tracking, inventory, conditions, and stat modifiers |
-| **Persistent campaigns** | Campaigns, sessions, characters, world state, dungeon maps, and NPC registries saved to SQLite |
+| **Persistent campaigns** | Campaigns, sessions, characters, world state, dungeon maps, NPC registries, and quest logs saved to SQLite |
 | **Session continuity** | Rolling-window summarisation keeps long sessions within the Claude context window; summaries carry forward into new sessions |
 | **Campaign auth** | Each campaign has an access code that gates write operations |
 | **Rulesets** | D&D 5th Edition, Pathfinder 2e, or Freeform (DM judgment mode) |
 | **Themes** | Fantasy, HUD (sci-fi), or Minimal — switchable at runtime |
+| **Mobile layout** | Responsive design: sidebar panels become fixed overlays on narrow screens, session action buttons scroll horizontally, 44 px touch targets, iOS textarea zoom prevention |
 
 ---
 
@@ -59,7 +65,7 @@ A full-stack web application that uses the Anthropic Claude API to act as an int
 
 ### DM Tool Use
 
-Claude has ten tools it may invoke while generating a response:
+Claude has eleven tools it may invoke while generating a response:
 
 | Tool | Category | What it does |
 |---|---|---|
@@ -72,6 +78,7 @@ Claude has ten tools it may invoke while generating a response:
 | `next_turn` | Combat | Advances initiative order to the next combatant; increments round at end of rotation; broadcasts `combat_update` |
 | `end_combat` | Combat | Clears the active encounter; broadcasts a `combat_update` with `active: false` |
 | `upsert_npc` | NPCs | Adds or updates an NPC (name, faction, attitude, location, notes) in the campaign registry; broadcasts `npc_update` |
+| `upsert_quest` | Quests | Adds or updates a quest (name, status, description) in the campaign quest log; broadcasts `quest_update` |
 | `generate_scene_image` | Illustration | Calls DALL-E 3 to generate an atmospheric scene image; broadcasts `scene_image` |
 
 ### Context Management
@@ -103,6 +110,27 @@ Subsequent `next_turn` calls advance the tracker (and increment the round at the
 ### NPC Tracker
 
 NPCs are stored as a JSON array in the `campaign.npcs` column. The DM calls `upsert_npc` to add or update an entry; existing records are matched by `id` (a snake_case slug). The full registry is broadcast as `npc_update` after every change and displayed in the NPC Tracker sidebar panel grouped by attitude (friendly / neutral / hostile / unknown).
+
+### Quest Tracker
+
+Quests are stored as a JSON array in the `campaign.quests` column. The DM calls `upsert_quest` to add or update entries; existing records are matched by `id` (a snake_case slug). The full list is broadcast as `quest_update` after every change and displayed in the Quest Tracker sidebar panel grouped by status:
+
+- **Active** — shown in gold, with full name and description
+- **Completed** — shown in green
+- **Failed** — shown in red
+
+In the DM's system prompt only active quests are expanded in full; completed and failed quests appear as a summary count to keep context bounded as campaigns progress.
+
+### Virtual Dice Roller
+
+The `DiceRoller` component provides in-browser rolling when a physical camera or external dice are not available:
+
+- Supports d4, d6, d8, d10, d12, d20, and d100.
+- Count (1–10) and modifier (+/− any integer) are adjustable before rolling.
+- Rolls use `crypto.getRandomValues` for cryptographically uniform results.
+- When a `pendingRoll` is active (DM called `request_player_roll`) the roller auto-selects the correct die type parsed from the `NdX` notation, displays the skill name and DC, and exposes a **Submit Roll** button that sends a `manual_roll` WebSocket message.
+- For freeform rolls a **Send to Chat** button broadcasts the result as a player action so all participants see it.
+- The last six rolls are kept in a history list.
 
 ### Scene Illustration
 
@@ -212,8 +240,8 @@ ai_dungeon_master/
 │       └── session_hub.py      # WebSocket room manager and broadcaster
 ├── frontend/
 │   └── src/
-│       ├── api/client.ts       # Typed REST API client (campaigns, sessions, characters, map, NPCs)
-│       ├── store/gameStore.ts  # Zustand global state (campaigns, session, characters, map, combat, NPCs)
+│       ├── api/client.ts       # Typed REST API client (campaigns, sessions, characters, map, NPCs, combat, quests)
+│       ├── store/gameStore.ts  # Zustand global state (campaigns, session, characters, map, combat, NPCs, quests)
 │       ├── hooks/
 │       │   ├── useWebSocket.ts         # WebSocket connection with exponential backoff
 │       │   ├── useTTS.ts               # Text-to-speech (ElevenLabs / OpenAI / browser)
@@ -224,18 +252,25 @@ ai_dungeon_master/
 │       │   ├── PlayerInput.tsx     # Text/voice action input with send button
 │       │   ├── CharacterSheet.tsx  # HP adjuster, inventory, conditions panel
 │       │   ├── DungeonMap.tsx      # Canvas dungeon map with fog-of-war and pan/zoom
-│       │   ├── CombatTracker.tsx   # Initiative order, HP bars, conditions sidebar
+│       │   ├── CombatTracker.tsx   # Initiative order, HP bars, conditions sidebar (DM controls gated)
 │       │   ├── NPCTracker.tsx      # NPC registry panel grouped by attitude
+│       │   ├── QuestTracker.tsx    # Quest log panel grouped by status (active/completed/failed)
+│       │   ├── DiceRoller.tsx      # Virtual dice roller (d4–d100, crypto-random, pending-roll support)
 │       │   ├── SessionJournal.tsx  # Collapsible past-session summaries in Campaign Detail
 │       │   ├── DiceCamera.tsx      # Camera capture + Claude Vision dice detection
 │       │   ├── DMVoice.tsx         # TTS controls and speaking indicator
 │       │   ├── MicButton.tsx       # Push-to-talk microphone button
 │       │   ├── CampaignList.tsx    # Campaign browser with create/delete/continue
 │       │   ├── CampaignSetup.tsx   # New-campaign form (name, ruleset, description)
-│       │   ├── CampaignDetail.tsx  # Campaign overview + Journal tab (characters, sessions)
+│       │   ├── CampaignDetail.tsx  # Campaign overview + Journal + DM invite link
 │       │   ├── CharacterForm.tsx   # New-character form with HP suggestion
 │       │   ├── Header.tsx          # Top navigation bar with theme switcher
 │       │   └── ThemeSwitcher.tsx   # Fantasy / HUD / Minimal theme toggle
+│       ├── themes/
+│       │   ├── base.css            # Design tokens, global reset, mobile touch-target overrides
+│       │   ├── fantasy.css         # Parchment / serif theme
+│       │   ├── hud.css             # Dark / cyan sci-fi theme
+│       │   └── minimal.css         # Clean light theme
 │       └── types.ts            # Shared TypeScript interfaces and WebSocket message types
 ├── tests/                      # pytest backend tests
 │   ├── conftest.py             # In-memory SQLite fixtures and httpx test client
@@ -278,6 +313,16 @@ All endpoints are prefixed with `/api`.
 | `GET` | `/api/campaigns/{id}/map` | — | Get dungeon map (auto-generates on first call) |
 | `POST` | `/api/campaigns/{id}/map/generate` | ✓ | Regenerate the dungeon map |
 | `GET` | `/api/campaigns/{id}/npcs` | — | List all NPCs for a campaign |
+| `GET` | `/api/campaigns/{id}/quests` | — | List all quests for a campaign |
+
+### Combat
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/sessions/{session_id}/combat/next-turn` | ✓ | Advance initiative to the next combatant |
+| `POST` | `/api/sessions/{session_id}/combat/end` | ✓ | End the active combat encounter |
+| `POST` | `/api/sessions/{session_id}/combat/combatants` | ✓ | Add a combatant to the active encounter |
+| `DELETE` | `/api/sessions/{session_id}/combat/combatants/{name}` | ✓ | Remove a combatant by name |
 
 ### Characters
 
@@ -332,6 +377,7 @@ The `access_code` query parameter is required; the connection is closed with cod
 | `map_update` | `explored_rooms` | Updated list of explored room IDs after `reveal_area` |
 | `combat_update` | `active`, `round`, `turn_index`, `combatants` | Full combat tracker state after `start_combat`, `next_turn`, or `end_combat` |
 | `npc_update` | `npcs` | Full NPC registry for the campaign after `upsert_npc` |
+| `quest_update` | `quests` | Full quest list for the campaign after `upsert_quest` |
 | `scene_image` | `url`, `description` | AI-generated scene illustration after `generate_scene_image` |
 | `system` | `text` | Generic server notice (session lifecycle, player joins/leaves) |
 | `error` | `message` | Error description |
@@ -371,6 +417,16 @@ All players connect to the same `session_id`. A session is created via the REST 
 
 The WebSocket hub broadcasts all DM narration, dice results, map reveals, and state updates to every connected player in the room simultaneously.
 
+### Invite Links
+
+The player who created the campaign holds its access code and is considered the DM. To invite others:
+
+1. In the Campaign Detail view or the session top-bar, click **🔗 Invite** (DM-only button).
+2. A URL is copied to the clipboard: `https://<host>/?campaign=<id>&code=<token>`.
+3. Recipients open the link — the app reads the params on startup, stores the token, and navigates directly to the campaign.
+
+The access code grants write access (start sessions, update characters) but does **not** grant DM UI controls; those are reserved for the client that holds the token in `localStorage` from the original campaign creation.
+
 ---
 
 ## Themes
@@ -397,4 +453,7 @@ Themes are implemented via CSS custom properties on `document.body` and persiste
 - Combat state lives only in memory. If the server restarts mid-combat the tracker will be empty on reconnect, though character HP already updated by `update_character` tool calls is persisted normally.
 - Scene illustration requires `OPENAI_API_KEY`. If the key is absent, `generate_scene_image` raises a `RuntimeError` which surfaces as a system error message in the narrative log; the session continues normally.
 - NPC records are stored in the `campaign.npcs` JSON column. The DM's `upsert_npc` tool matches existing NPCs by `id` (a snake_case slug) so repeat calls update rather than duplicate.
+- Quest records are stored in the `campaign.quests` JSON column. The DM's `upsert_quest` tool matches existing quests by `id`; only active quests are expanded in the DM system prompt — completed and failed quests appear as a count to keep token usage bounded.
+- `isDM` is derived entirely on the frontend from whether a campaign access token exists in `campaignTokens` (Zustand / `localStorage`). There is no separate backend role concept; the access code is the sole credential.
+- The virtual dice roller uses `crypto.getRandomValues` for cryptographically uniform results — not `Math.random()`. When a `pendingRoll` is active the roller pre-selects the requested die type from the `NdX` notation and its Submit button sends the result to the server as a `manual_roll` WebSocket message.
 - Context summarisation uses `claude-haiku-4-5-20251001` for cost efficiency. The rolling threshold and keep-recent window are configurable via `SUMMARY_THRESHOLD` and `SUMMARY_KEEP_RECENT` in `backend/main.py`.

@@ -14,13 +14,19 @@ interface Props {
  * Bottom input bar for the active session.
  *
  * Provides a multiline textarea (submitted with Ctrl+Enter), a {@link MicButton}
- * for voice input, and a send button. Shows a banner when a dice roll is pending
- * (with shortcuts to open the camera or manual-entry modes), a reconnection warning
- * when the WebSocket is down, and a "DM is narrating…" indicator while streaming.
+ * for voice input, and a send button. When a dice roll is pending a banner
+ * appears with three quick-action buttons: "📷 Camera" (opens DiceCamera),
+ * "✎ Manual" (also opens DiceCamera in manual mode), and "🎲 Roll" (opens the
+ * virtual DiceRoller sidebar). A reconnection warning appears when the WebSocket
+ * is down; a "DM is narrating…" indicator shows while streaming.
+ *
+ * The textarea uses `font-size: max(16px, ...)` to prevent iOS from auto-zooming
+ * when the field receives focus.
  *
  * @param onSendAction - Called with the trimmed action text when the user submits.
  * @param onSendVoiceTranscript - Called with the STT transcript when the mic finishes.
- * @param onOpenDiceCamera - Called when the user clicks a roll-related action button.
+ * @param onOpenDiceCamera - Called when the user clicks the Camera or Manual roll button.
+ * @param onOpenDiceRoller - Called when the user clicks the "🎲 Roll" button.
  * @param connected - Whether the WebSocket is currently open; disables input when false.
  */
 export function PlayerInput({

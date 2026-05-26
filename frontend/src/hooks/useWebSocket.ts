@@ -244,6 +244,15 @@ export function useWebSocket(sessionId: string | null) {
           })
           break
         }
+
+        case 'map_update': {
+          useGameStore.setState((state) => ({
+            mapData: state.mapData
+              ? { ...state.mapData, explored_rooms: msg.explored_rooms }
+              : state.mapData,
+          }))
+          break
+        }
       }
     }
   }, [sessionId])

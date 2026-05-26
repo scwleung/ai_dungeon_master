@@ -58,6 +58,9 @@ WORLD STATE:
 ACTIVE CHARACTERS:
 {characters_summary}
 
+DUNGEON MAP:
+{map_section}
+
 INSTRUCTIONS:
 - Narrate vividly in second person ("You see...", "Before you...") or third person for dramatic effect
 - React authentically to player choices — make their decisions matter
@@ -69,7 +72,8 @@ INSTRUCTIONS:
 - Balance combat, exploration, and roleplay
 - For D&D 5e/PF2e: call `request_player_roll` when a check is needed, then wait for the result
 - Responses should be 1-4 paragraphs — vivid but not exhausting
-- Never break character or mention that you are an AI"""
+- Never break character or mention that you are an AI
+- When players move to or discover a new area shown on the dungeon map, call `reveal_area` with the room's id so the players' maps update in real time"""
 
 # ---------------------------------------------------------------------------
 # Tool definitions
@@ -200,6 +204,26 @@ TOOLS: list[dict] = [
             "required": ["updates"],
         },
     },
+    {
+        "name": "reveal_area",
+        "description": (
+            "Reveal a dungeon room on all players' maps, lifting the fog of war. "
+            "Call this when players enter or discover a new room."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "room_id": {
+                    "type": "string",
+                    "description": (
+                        "The room identifier from the dungeon map, e.g. 'room_0'. "
+                        "Use the exact id listed in the DUNGEON MAP section of the system prompt."
+                    ),
+                },
+            },
+            "required": ["room_id"],
+        },
+    },
 ]
 
 
@@ -292,7 +316,31 @@ class DungeonMaster:
             campaign_description=getattr(campaign, "description", ""),
             world_state=world_state_text,
             characters_summary=self._format_characters(characters),
+            map_section=self._format_map(campaign),
         )
+
+    def _format_map(self, campaign) -> str:
+        """Render the dungeon map room list for the system prompt."""
+        raw = getattr(campaign, "map_data", None)
+        if not raw:
+            return "  (No map generated yet — one will be created when players first explore)"
+        try:
+            map_dict = json.loads(raw) if isinstance(raw, str) else raw
+            rooms = map_dict.get("rooms", [])
+            explored = set(map_dict.get("explored_rooms", []))
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            return "  (Map data unavailable)"
+
+        if not rooms:
+            return "  (Map has no rooms)"
+
+        lines: list[str] = []
+        for room in rooms:
+            status = "EXPLORED" if room["id"] in explored else "unexplored"
+            lines.append(
+                f"  [{room['id']}] {room['name']} ({room['type']}) — {status}"
+            )
+        return "\n".join(lines)
 
     def _format_characters(self, characters: list) -> str:
         """Render the character roster as an indented text block for the system prompt.

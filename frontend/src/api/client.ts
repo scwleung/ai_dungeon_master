@@ -1,4 +1,4 @@
-import type { Campaign, Character, CharacterUpdate, Session } from '../types'
+import type { Campaign, Character, CharacterUpdate, MapData, Session } from '../types'
 
 const BASE = ''
 
@@ -104,6 +104,16 @@ export const api = {
       request<{ data: Character }>('PUT', `/api/characters/${id}`, data),
     /** Permanently delete a character by ID. */
     delete: (id: string) => request<void>('DELETE', `/api/characters/${id}`),
+  },
+
+  /** Dungeon map operations. */
+  map: {
+    /** Fetch the campaign's dungeon map; auto-generates one if none exists yet. */
+    get: (campaignId: string) =>
+      request<{ campaign_id: string; map_data: MapData }>('GET', `/api/campaigns/${campaignId}/map`),
+    /** Force-regenerate the dungeon map (requires access code). */
+    generate: (campaignId: string) =>
+      request<{ campaign_id: string; map_data: MapData }>('POST', `/api/campaigns/${campaignId}/map/generate`),
   },
 
   /** Text-to-speech operations. */

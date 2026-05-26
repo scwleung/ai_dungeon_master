@@ -309,6 +309,20 @@ async def generate_map(
     return {"campaign_id": campaign_id, "map_data": map_dict}
 
 
+@router.get("/{campaign_id}/npcs")
+async def list_npcs(campaign_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the NPC registry for a campaign."""
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=404, detail=f"Campaign {campaign_id!r} not found")
+    try:
+        npcs = json.loads(campaign.npcs or "[]")
+    except (json.JSONDecodeError, TypeError):
+        npcs = []
+    return {"campaign_id": campaign_id, "npcs": npcs}
+
+
 @router.put("/sessions/{session_id}/end", response_model=SessionResponse)
 async def end_session(
     session_id: str,

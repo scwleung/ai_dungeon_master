@@ -18,6 +18,56 @@ from typing import Optional
 
 
 @dataclass
+class Combatant:
+    name: str
+    initiative: int
+    hp_current: int
+    hp_max: int
+    is_player: bool = False
+    character_id: Optional[str] = None
+    conditions: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "initiative": self.initiative,
+            "hp_current": self.hp_current,
+            "hp_max": self.hp_max,
+            "is_player": self.is_player,
+            "character_id": self.character_id,
+            "conditions": list(self.conditions),
+        }
+
+
+@dataclass
+class CombatState:
+    active: bool = False
+    round: int = 1
+    turn_index: int = 0
+    combatants: list[Combatant] = field(default_factory=list)
+
+    def current_combatant(self) -> Optional[Combatant]:
+        if not self.active or not self.combatants:
+            return None
+        return self.combatants[self.turn_index % len(self.combatants)]
+
+    def advance(self) -> None:
+        if not self.combatants:
+            return
+        self.turn_index = (self.turn_index + 1) % len(self.combatants)
+        if self.turn_index == 0:
+            self.round += 1
+
+    def to_dict(self) -> dict:
+        return {
+            "active": self.active,
+            "round": self.round,
+            "turn_index": self.turn_index,
+            "combatants": [c.to_dict() for c in self.combatants],
+        }
+
+
+@dataclass
 class PendingRoll:
     """Represents a dice roll request that is waiting for a player's response."""
 
@@ -50,6 +100,7 @@ class GameStateManager:
 
     def __init__(self) -> None:
         self._sessions: dict[str, ActiveSession] = {}
+        self._combat: dict[str, CombatState] = {}
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -147,6 +198,44 @@ class GameStateManager:
             for roll in session.pending_rolls.values()
             if roll.player_id == player_id
         ]
+
+    # ------------------------------------------------------------------
+    # Combat management
+    # ------------------------------------------------------------------
+
+    def get_combat(self, session_id: str) -> CombatState:
+        return self._combat.get(session_id, CombatState())
+
+    def start_combat(self, session_id: str, combatants_data: list[dict]) -> CombatState:
+        combatants = sorted(
+            [
+                Combatant(
+                    name=c.get("name", "Unknown"),
+                    initiative=int(c.get("initiative", 0)),
+                    hp_current=int(c.get("hp_current", c.get("hp", 10))),
+                    hp_max=int(c.get("hp_max", c.get("hp", 10))),
+                    is_player=bool(c.get("is_player", False)),
+                    character_id=c.get("character_id"),
+                    conditions=list(c.get("conditions", [])),
+                )
+                for c in combatants_data
+            ],
+            key=lambda x: x.initiative,
+            reverse=True,
+        )
+        state = CombatState(active=True, round=1, turn_index=0, combatants=combatants)
+        self._combat[session_id] = state
+        return state
+
+    def advance_turn(self, session_id: str) -> CombatState:
+        state = self._combat.get(session_id)
+        if state is None or not state.active:
+            return CombatState()
+        state.advance()
+        return state
+
+    def end_combat(self, session_id: str) -> None:
+        self._combat.pop(session_id, None)
 
     # ------------------------------------------------------------------
     # Introspection

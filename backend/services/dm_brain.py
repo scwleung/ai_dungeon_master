@@ -61,6 +61,9 @@ ACTIVE CHARACTERS:
 DUNGEON MAP:
 {map_section}
 
+KNOWN NPCs:
+{npc_section}
+
 INSTRUCTIONS:
 - Narrate vividly in second person ("You see...", "Before you...") or third person for dramatic effect
 - React authentically to player choices — make their decisions matter
@@ -73,7 +76,10 @@ INSTRUCTIONS:
 - For D&D 5e/PF2e: call `request_player_roll` when a check is needed, then wait for the result
 - Responses should be 1-4 paragraphs — vivid but not exhausting
 - Never break character or mention that you are an AI
-- When players move to or discover a new area shown on the dungeon map, call `reveal_area` with the room's id so the players' maps update in real time"""
+- When players move to or discover a new area shown on the dungeon map, call `reveal_area` with the room's id so the players' maps update in real time
+- Use `start_combat` when a fight begins (list all combatants sorted by initiative), `next_turn` after each action, `end_combat` when resolved
+- Use `upsert_npc` whenever you introduce or update a named NPC so they are tracked consistently across sessions
+- Use `generate_scene_image` when players arrive at a striking new location or a dramatic moment calls for visual atmosphere"""
 
 # ---------------------------------------------------------------------------
 # Tool definitions
@@ -224,6 +230,93 @@ TOOLS: list[dict] = [
             "required": ["room_id"],
         },
     },
+    {
+        "name": "start_combat",
+        "description": (
+            "Start a combat encounter. Provide all combatants (PCs and enemies) sorted "
+            "by initiative — highest first. The tracker displays in all players' UIs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "combatants": {
+                    "type": "array",
+                    "description": "All combatants, initiative-sorted highest first.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "initiative": {"type": "integer"},
+                            "hp_current": {"type": "integer"},
+                            "hp_max": {"type": "integer"},
+                            "is_player": {"type": "boolean", "default": False},
+                            "character_id": {"type": "string", "description": "PC character UUID if applicable"},
+                        },
+                        "required": ["name", "initiative", "hp_current", "hp_max"],
+                    },
+                },
+            },
+            "required": ["combatants"],
+        },
+    },
+    {
+        "name": "next_turn",
+        "description": "Advance to the next combatant in the initiative order.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "end_combat",
+        "description": "End the current combat encounter and clear the tracker from all players' UIs.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "upsert_npc",
+        "description": (
+            "Add a new NPC to the campaign registry or update an existing one. "
+            "Call this whenever you introduce or update a named NPC."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "npc_id": {
+                    "type": "string",
+                    "description": "Unique slug for this NPC, e.g. 'innkeeper_boris'. Use snake_case.",
+                },
+                "name": {"type": "string", "description": "Display name"},
+                "faction": {"type": "string", "description": "Faction or affiliation"},
+                "attitude": {
+                    "type": "string",
+                    "enum": ["friendly", "neutral", "hostile", "unknown"],
+                    "description": "Current attitude towards the party",
+                },
+                "location": {"type": "string", "description": "Last known location"},
+                "description": {"type": "string", "description": "Physical description or key traits"},
+                "notes": {"type": "string", "description": "Campaign-specific notes"},
+            },
+            "required": ["npc_id", "name"],
+        },
+    },
+    {
+        "name": "generate_scene_image",
+        "description": (
+            "Generate an atmospheric illustration of the current scene and display it "
+            "on all players' screens. Use when entering a dramatic new location or "
+            "at the start of a major encounter."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "Vivid visual description for the image generator. Include: "
+                        "setting, lighting, mood, key visual elements, art style."
+                    ),
+                },
+            },
+            "required": ["description"],
+        },
+    },
 ]
 
 
@@ -321,7 +414,31 @@ class DungeonMaster:
             world_state=world_state_text,
             characters_summary=self._format_characters(characters),
             map_section=self._format_map(campaign),
+            npc_section=self._format_npcs(campaign),
         )
+
+    def _format_npcs(self, campaign) -> str:
+        """Render the NPC registry for the system prompt."""
+        raw = getattr(campaign, "npcs", None)
+        if not raw:
+            return "  (No NPCs registered yet)"
+        try:
+            npcs = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            return "  (NPC data unavailable)"
+        if not npcs:
+            return "  (No NPCs registered yet)"
+        lines: list[str] = []
+        for npc in npcs:
+            faction = f" [{npc.get('faction')}]" if npc.get("faction") else ""
+            location = f" @ {npc.get('location')}" if npc.get("location") else ""
+            attitude = npc.get("attitude", "unknown")
+            lines.append(
+                f"  [{npc.get('id')}] {npc.get('name')}{faction}{location} — {attitude}"
+            )
+            if npc.get("description"):
+                lines.append(f"    {npc['description']}")
+        return "\n".join(lines)
 
     def _format_map(self, campaign) -> str:
         """Render the dungeon map room list for the system prompt."""

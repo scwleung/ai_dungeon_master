@@ -25,6 +25,7 @@ WebSocket message types (server → client):
   map_update           Fog-of-war update: newly explored room IDs
   combat_update        Full combat tracker state (active, round, turn, combatants)
   npc_update           Full NPC registry for the campaign
+  quest_update         Full quest log for the campaign
   scene_image          URL of an AI-generated scene illustration
   system               Generic server notice (e.g. session lifecycle events)
   error                Error message
@@ -60,6 +61,7 @@ from backend.models.campaign import Session as GameSession
 from backend.models.character import Character
 from backend.models.roll_result import roll_dice, RollResult
 from backend.routers import campaigns, characters, tts as tts_router
+from backend.routers import combat as combat_router
 from backend.services.dm_brain import DungeonMaster
 from backend.services.game_state import PendingRoll, game_state_manager
 from backend.ws.session_hub import session_hub
@@ -105,6 +107,7 @@ app.add_middleware(
 app.include_router(campaigns.router, prefix="/api/campaigns", tags=["campaigns"])
 app.include_router(characters.router, prefix="/api", tags=["characters"])
 app.include_router(tts_router.router, prefix="/api/tts", tags=["tts"])
+app.include_router(combat_router.router)
 
 # ---------------------------------------------------------------------------
 # DM brain singleton (shared across all WS connections)
@@ -484,6 +487,38 @@ async def _upsert_npc_in_db(campaign_id: str, npc_data: dict) -> tuple[str, list
         return f"NPC '{npc['name']}' {action}.", npcs
 
 
+async def _upsert_quest_in_db(campaign_id: str, quest_data: dict) -> tuple[str, list[dict]]:
+    """Upsert a quest in campaign.quests JSON and return (message, quests_list)."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+        campaign = result.scalar_one_or_none()
+        if campaign is None:
+            return f"Campaign {campaign_id!r} not found.", []
+        try:
+            quests: list[dict] = json.loads(campaign.quests or "[]")
+        except (json.JSONDecodeError, TypeError):
+            quests = []
+        quest_id = quest_data.get("quest_id", "")
+        if not quest_id:
+            return "Missing quest_id.", quests
+        quest = {
+            "id": quest_id,
+            "name": quest_data.get("name", "Unknown"),
+            "status": quest_data.get("status", "active"),
+            "description": quest_data.get("description", ""),
+        }
+        existing_idx = next((i for i, q in enumerate(quests) if q.get("id") == quest_id), None)
+        if existing_idx is not None:
+            quests[existing_idx] = quest
+            action = "updated"
+        else:
+            quests.append(quest)
+            action = "added"
+        campaign.quests = json.dumps(quests)
+        await db.commit()
+        return f"Quest '{quest['name']}' {action}.", quests
+
+
 async def _update_world_state_in_db(campaign_id: str, updates: dict) -> str:
     """Apply world state key-value updates to the campaign in the DB."""
     async with AsyncSessionLocal() as db:
@@ -721,6 +756,14 @@ async def websocket_endpoint(
             message, npcs = await _upsert_npc_in_db(campaign_id, tool_input)
             if npcs is not None:
                 await session_hub.broadcast(session_id, {"type": "npc_update", "npcs": npcs})
+            return message
+
+        elif tool_name == "upsert_quest":
+            if campaign_id is None:
+                return "No campaign associated with this session."
+            message, quests = await _upsert_quest_in_db(campaign_id, tool_input)
+            if quests is not None:
+                await session_hub.broadcast(session_id, {"type": "quest_update", "quests": quests})
             return message
 
         elif tool_name == "generate_scene_image":

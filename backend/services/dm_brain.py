@@ -99,6 +99,9 @@ DUNGEON MAP:
 KNOWN NPCs:
 {npc_section}
 
+ACTIVE QUESTS:
+{quest_section}
+
 INSTRUCTIONS:
 - Narrate vividly in second person ("You see...", "Before you...") or third person for dramatic effect
 - React authentically to player choices — make their decisions matter
@@ -114,6 +117,7 @@ INSTRUCTIONS:
 - When players move to or discover a new area shown on the dungeon map, call `reveal_area` with the room's id so the players' maps update in real time
 - Use `start_combat` when a fight begins (list all combatants sorted by initiative), `next_turn` after each action, `end_combat` when resolved
 - Use `upsert_npc` whenever you introduce or update a named NPC so they are tracked consistently across sessions
+- Use `upsert_quest` when players accept, complete, or fail a quest to keep the quest log accurate
 - Use `generate_scene_image` when players arrive at a striking new location or a dramatic moment calls for visual atmosphere"""
 
 # ---------------------------------------------------------------------------
@@ -332,6 +336,20 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "upsert_quest",
+        "description": "Add a new quest to the campaign log or update an existing one. Call this when players accept, advance, complete, or fail a quest.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "quest_id": {"type": "string", "description": "Unique snake_case slug, e.g. 'rescue_the_miller'."},
+                "name": {"type": "string", "description": "Short display name"},
+                "status": {"type": "string", "enum": ["active", "completed", "failed"], "description": "Current quest status"},
+                "description": {"type": "string", "description": "What the quest involves and its current state"},
+            },
+            "required": ["quest_id", "name", "status"],
+        },
+    },
+    {
         "name": "generate_scene_image",
         "description": (
             "Generate an atmospheric illustration of the current scene and display it "
@@ -450,6 +468,7 @@ class DungeonMaster:
             characters_summary=self._format_characters(characters),
             map_section=self._format_map(campaign),
             npc_section=self._format_npcs(campaign),
+            quest_section=self._format_quests(campaign),
         )
 
     def _format_npcs(self, campaign) -> str:
@@ -473,6 +492,26 @@ class DungeonMaster:
             )
             if npc.get("description"):
                 lines.append(f"    {npc['description']}")
+        return "\n".join(lines)
+
+    def _format_quests(self, campaign) -> str:
+        """Render the quest log for the system prompt."""
+        raw = getattr(campaign, "quests", None)
+        if not raw:
+            return "  (No quests recorded yet)"
+        try:
+            quests = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            return "  (Quest data unavailable)"
+        if not quests:
+            return "  (No quests recorded yet)"
+        lines: list[str] = []
+        for quest in quests:
+            lines.append(
+                f"  [{quest.get('id')}] {quest.get('name')} — {quest.get('status')}"
+            )
+            if quest.get("description"):
+                lines.append(f"    {quest['description']}")
         return "\n".join(lines)
 
     def _format_map(self, campaign) -> str:

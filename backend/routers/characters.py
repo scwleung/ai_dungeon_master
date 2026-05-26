@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.auth import require_campaign_access, require_character_access
 from backend.database import get_db
 from backend.models.campaign import Campaign
 from backend.models.character import (
@@ -77,6 +78,7 @@ async def create_character(
     campaign_id: str,
     payload: CharacterCreate,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_campaign_access),
 ):
     """Create a new character in the given campaign."""
     campaign_result = await db.execute(
@@ -130,6 +132,7 @@ async def update_character(
     character_id: str,
     payload: CharacterUpdate,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_character_access),
 ):
     """
     Update a character with PATCH semantics.
@@ -163,7 +166,9 @@ async def update_character(
 
 @router.delete("/characters/{character_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_character(
-    character_id: str, db: AsyncSession = Depends(get_db)
+    character_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_character_access),
 ):
     """Delete a character by ID."""
     result = await db.execute(

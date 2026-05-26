@@ -287,3 +287,61 @@ async def test_detect_dice_skips_items_missing_value():
     result = await dm.detect_dice("base64imagedata")
     assert len(result) == 1
     assert result[0] == {"sides": 6, "value": 3}
+
+
+# ---------------------------------------------------------------------------
+# summarize_history tests
+# ---------------------------------------------------------------------------
+
+
+async def test_summarize_history_returns_text():
+    dm = make_dm()
+    dm.client.messages.create = AsyncMock(
+        return_value=_make_text_response("The party defeated the goblin horde.")
+    )
+    result = await dm.summarize_history("USER: I attack.\nASSISTANT: You hit!")
+    assert result == "The party defeated the goblin horde."
+
+
+async def test_summarize_history_includes_existing_summary_in_prompt():
+    dm = make_dm()
+    dm.client.messages.create = AsyncMock(
+        return_value=_make_text_response("Updated summary.")
+    )
+    await dm.summarize_history("USER: I look around.", existing_summary="Earlier: tavern brawl.")
+    call_kwargs = dm.client.messages.create.call_args
+    user_content = call_kwargs[1]["messages"][0]["content"]
+    assert "Earlier: tavern brawl." in user_content
+    assert "I look around." in user_content
+
+
+async def test_summarize_history_no_existing_summary_omits_prefix():
+    dm = make_dm()
+    dm.client.messages.create = AsyncMock(
+        return_value=_make_text_response("Summary.")
+    )
+    await dm.summarize_history("USER: Hi.")
+    call_kwargs = dm.client.messages.create.call_args
+    user_content = call_kwargs[1]["messages"][0]["content"]
+    assert "Earlier summary:" not in user_content
+
+
+async def test_summarize_history_uses_haiku_model():
+    dm = make_dm()
+    dm.client.messages.create = AsyncMock(
+        return_value=_make_text_response("Summary text.")
+    )
+    await dm.summarize_history("USER: Go north.")
+    call_kwargs = dm.client.messages.create.call_args
+    assert "haiku" in call_kwargs[1]["model"]
+
+
+async def test_summarize_history_system_prompt_mentions_rpg():
+    dm = make_dm()
+    dm.client.messages.create = AsyncMock(
+        return_value=_make_text_response("Summary text.")
+    )
+    await dm.summarize_history("USER: I search the room.")
+    call_kwargs = dm.client.messages.create.call_args
+    system_text = call_kwargs[1]["system"]
+    assert "RPG" in system_text or "tabletop" in system_text.lower()

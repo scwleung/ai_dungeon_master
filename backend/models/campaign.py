@@ -19,6 +19,7 @@ when constructing response objects.
 """
 
 import json
+import secrets
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -28,6 +29,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
 from pydantic import BaseModel, model_validator
+
+
+def generate_access_code() -> str:
+    """Generate a random 8-character URL-safe access code for a campaign."""
+    return secrets.token_urlsafe(6)
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +53,8 @@ class Campaign(Base):
         created_at: Server-side UTC timestamp set on INSERT.
         world_state: JSON-serialised dict tracking persistent world facts
             (NPC attitudes, quest state, current location, etc.).
+        access_code: Random URL-safe token used to gate write access to
+            this campaign via the ``X-Access-Code`` request header.
         characters: One-to-many relationship to ``Character`` rows.
         sessions: One-to-many relationship to ``Session`` rows.
     """
@@ -59,6 +67,7 @@ class Campaign(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
     world_state: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    access_code: Mapped[str] = mapped_column(String(12), nullable=False, default=generate_access_code)
 
     characters: Mapped[list["Character"]] = relationship(  # type: ignore[name-defined]
         "Character",
@@ -84,7 +93,11 @@ class Session(Base):
         ended_at: UTC timestamp when ``end_session`` was called; ``None`` while
             the session is still active.
         messages: JSON-serialised list of ``NarrativeMessage`` dicts that form
-            the session's chat history.
+            the session's chat history (only the most recent window after
+            summarisation).
+        session_summary: Condensed narrative of messages that have been rolled
+            out of the active window; ``None`` for sessions that have not yet
+            been summarised.
         campaign: Back-reference to the parent ``Campaign`` object.
     """
 
@@ -95,6 +108,7 @@ class Session(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     messages: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    session_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="sessions")
 
@@ -117,6 +131,8 @@ class CampaignResponse(BaseModel):
 
     ``world_state`` is always returned as a parsed ``dict``; ``session_count``
     is derived from the length of the ``sessions`` relationship at read time.
+    ``access_code`` is included so clients can store it for subsequent
+    authenticated requests.
     """
 
     id: str
@@ -125,6 +141,7 @@ class CampaignResponse(BaseModel):
     description: str
     created_at: datetime
     world_state: dict
+    access_code: str
     session_count: int = 0
 
     model_config = {"from_attributes": True}
@@ -150,6 +167,7 @@ class CampaignResponse(BaseModel):
                 "description": obj.description,
                 "created_at": obj.created_at,
                 "world_state": world_state,
+                "access_code": obj.access_code,
                 "session_count": len(sessions),
             }
         # Handle dict
@@ -188,7 +206,8 @@ class SessionResponse(BaseModel):
 
     ``messages`` is always returned as a parsed list of ``NarrativeMessage``
     objects regardless of whether the underlying ORM field is a JSON string
-    or an already-decoded list.
+    or an already-decoded list.  ``session_summary`` holds the condensed
+    narrative of messages that have been rolled out of the active window.
     """
 
     id: str
@@ -196,6 +215,7 @@ class SessionResponse(BaseModel):
     started_at: datetime
     ended_at: Optional[datetime] = None
     messages: list[NarrativeMessage] = []
+    session_summary: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -219,6 +239,7 @@ class SessionResponse(BaseModel):
                 "started_at": obj.started_at,
                 "ended_at": obj.ended_at,
                 "messages": parsed,
+                "session_summary": getattr(obj, "session_summary", None),
             }
         if isinstance(values, dict):
             raw = values.get("messages", "[]")

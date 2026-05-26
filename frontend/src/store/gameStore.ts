@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api } from '../api/client'
+import { api, setAccessCode } from '../api/client'
 import type {
   AppView,
   Campaign,
@@ -14,6 +14,24 @@ import type {
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 11)
+}
+
+function loadCampaignTokens(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem('campaign_tokens')
+    if (raw) return JSON.parse(raw) as Record<string, string>
+  } catch {
+    // ignore
+  }
+  return {}
+}
+
+function saveCampaignTokens(tokens: Record<string, string>): void {
+  try {
+    localStorage.setItem('campaign_tokens', JSON.stringify(tokens))
+  } catch {
+    // ignore
+  }
 }
 
 function loadSettings(): GameSettings {
@@ -97,6 +115,8 @@ export interface GameStore {
   campaigns: Campaign[]
   /** The campaign currently open in the detail or session view; `null` when on the list view. */
   activeCampaign: Campaign | null
+  /** Map of campaign ID → access code, persisted to localStorage. */
+  campaignTokens: Record<string, string>
   /** Fetch all campaigns from the server and replace the `campaigns` list. */
   loadCampaigns: () => Promise<void>
   /** Create a new campaign via the API and append it to `campaigns`. */
@@ -186,14 +206,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // Campaign
   campaigns: [],
   activeCampaign: null,
+  campaignTokens: loadCampaignTokens(),
   loadCampaigns: async () => {
     const res = await api.campaigns.list()
     set({ campaigns: res.data })
   },
   createCampaign: async (data) => {
     const res = await api.campaigns.create(data)
-    set((state) => ({ campaigns: [...state.campaigns, res.data] }))
-    return res.data
+    const campaign = res.data
+    // Persist the access code so the user can make authenticated requests later
+    set((state) => {
+      const tokens = { ...state.campaignTokens, [campaign.id]: campaign.access_code }
+      saveCampaignTokens(tokens)
+      return { campaigns: [...state.campaigns, campaign], campaignTokens: tokens }
+    })
+    setAccessCode(campaign.access_code)
+    return campaign
   },
   deleteCampaign: async (id) => {
     await api.campaigns.delete(id)
@@ -202,7 +230,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
       activeCampaign: state.activeCampaign?.id === id ? null : state.activeCampaign,
     }))
   },
-  setActiveCampaign: (c) => set({ activeCampaign: c }),
+  setActiveCampaign: (c) => {
+    if (c) {
+      const tokens = get().campaignTokens
+      setAccessCode(tokens[c.id] ?? c.access_code ?? '')
+    } else {
+      setAccessCode('')
+    }
+    set({ activeCampaign: c })
+  },
 
   // Session
   activeSession: null,

@@ -25,6 +25,8 @@ def _make_db_cm(campaign_id: str | None = None):
     fake_session = MagicMock()
     fake_session.campaign_id = campaign_id
     fake_session.messages = "[]"
+    # access_code must be "" so the WS auth check passes (default param is "")
+    fake_session.access_code = ""
 
     exec_result = MagicMock()
     exec_result.scalar_one_or_none.return_value = fake_session if campaign_id else None

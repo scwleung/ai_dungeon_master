@@ -2,6 +2,19 @@ import type { Campaign, Character, CharacterUpdate, Session } from '../types'
 
 const BASE = ''
 
+/** Module-level access code for the currently active campaign. */
+let _accessCode = ''
+
+/** Set the active campaign access code used by all subsequent requests. */
+export function setAccessCode(code: string): void {
+  _accessCode = code
+}
+
+/** Return the currently active campaign access code. */
+export function getAccessCode(): string {
+  return _accessCode
+}
+
 /**
  * Shared HTTP helper that wraps `fetch` with JSON serialisation, error extraction,
  * and a special case for 204 No Content responses.
@@ -16,10 +29,11 @@ const BASE = ''
  *                 from `detail` or `message` fields in the JSON body when available.
  */
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const init: RequestInit = {
-    method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
-  }
+  const headers: Record<string, string> = {}
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  if (_accessCode) headers['X-Access-Code'] = _accessCode
+
+  const init: RequestInit = { method, headers }
   if (body !== undefined) {
     init.body = JSON.stringify(body)
   }

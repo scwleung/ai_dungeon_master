@@ -1,0 +1,21 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Required
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # Optional — remove or leave blank to disable that TTS provider
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # SQLite stored on the named volume so it survives container restarts
+      - DATABASE_URL=sqlite+aiosqlite:////data/dungeon_master.db
+      # No CORS needed when frontend and backend share the same origin
+      - CORS_ORIGINS=http://localhost:8000
+    volumes:
+      - db_data:/data
+    restart: unless-stopped
+
+volumes:
+  db_data:

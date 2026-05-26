@@ -23,6 +23,8 @@ vi.mock('../../api/client', () => ({
       synthesize: vi.fn(),
     },
   },
+  setAccessCode: vi.fn(),
+  getAccessCode: vi.fn(() => ''),
 }))
 
 import { useGameStore } from '../../store/gameStore'
@@ -40,6 +42,7 @@ const makeCampaign = (overrides: Partial<Campaign> = {}): Campaign => ({
   created_at: '2024-01-01T00:00:00Z',
   world_state: {},
   session_count: 0,
+  access_code: 'test-code',
   ...overrides,
 })
 

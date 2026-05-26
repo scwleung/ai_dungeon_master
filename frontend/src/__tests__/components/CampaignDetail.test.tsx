@@ -47,6 +47,7 @@ function makeCampaign(overrides: Partial<Campaign> = {}): Campaign {
     created_at: '2024-01-15T10:00:00Z',
     world_state: {},
     session_count: 2,
+    access_code: 'test-code',
     ...overrides,
   }
 }

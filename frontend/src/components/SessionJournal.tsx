@@ -68,7 +68,9 @@ export function SessionJournal() {
     const a = document.createElement('a')
     a.href = url
     a.download = `${activeCampaign.name.toLowerCase().replace(/\s+/g, '-')}-journal.md`
+    document.body.appendChild(a)
     a.click()
+    document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
 

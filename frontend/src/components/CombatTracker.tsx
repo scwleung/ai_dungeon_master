@@ -67,16 +67,21 @@ export function CombatTracker({ onClose }: { onClose: () => void }) {
   async function handleAddCombatant(e: React.FormEvent) {
     e.preventDefault()
     if (!sessionId) return
+    const initiative = parseInt(addInitiative, 10)
     const hpMax = parseInt(addHpMax, 10)
     const hpCurrent = addHpCurrent !== '' ? parseInt(addHpCurrent, 10) : hpMax
+    if (isNaN(initiative) || isNaN(hpMax) || hpMax < 1 || (!isNaN(hpCurrent) && hpCurrent < 0)) {
+      setControlError('Initiative and HP must be valid numbers (HP Max ≥ 1, HP Current ≥ 0).')
+      return
+    }
     setAddLoading(true)
     setControlError(null)
     try {
       await api.combat.addCombatant(sessionId, {
-        name: addName,
-        initiative: parseInt(addInitiative, 10),
+        name: addName.trim(),
+        initiative,
         hp_max: hpMax,
-        hp_current: hpCurrent,
+        hp_current: isNaN(hpCurrent) ? hpMax : hpCurrent,
         is_player: addIsPlayer,
       })
       setAddName('')

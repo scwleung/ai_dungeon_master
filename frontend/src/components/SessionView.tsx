@@ -39,6 +39,7 @@ export function SessionView() {
     sceneImage,
     setSceneImage,
     updateCharacter,
+    loadQuests,
     endSession,
     setView,
   } = useGameStore()
@@ -68,6 +69,13 @@ export function SessionView() {
       setShowCombatPanel(true)
     }
   }, [combatActive])
+
+  // Load existing quests when the session starts
+  useEffect(() => {
+    if (activeCampaign) {
+      loadQuests(activeCampaign.id).catch(() => {})
+    }
+  }, [activeCampaign, loadQuests])
 
   // Find current player's character
   const myCharacter = characters.find(

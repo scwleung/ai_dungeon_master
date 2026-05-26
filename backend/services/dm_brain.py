@@ -495,7 +495,11 @@ class DungeonMaster:
         return "\n".join(lines)
 
     def _format_quests(self, campaign) -> str:
-        """Render the quest log for the system prompt."""
+        """Render the quest log for the system prompt.
+
+        Only active quests are shown in full; completed and failed quests are
+        counted so the context window stays bounded as campaigns grow long.
+        """
         raw = getattr(campaign, "quests", None)
         if not raw:
             return "  (No quests recorded yet)"
@@ -505,13 +509,28 @@ class DungeonMaster:
             return "  (Quest data unavailable)"
         if not quests:
             return "  (No quests recorded yet)"
+
+        active = [q for q in quests if q.get("status") == "active"]
+        completed = sum(1 for q in quests if q.get("status") == "completed")
+        failed = sum(1 for q in quests if q.get("status") == "failed")
+
         lines: list[str] = []
-        for quest in quests:
-            lines.append(
-                f"  [{quest.get('id')}] {quest.get('name')} — {quest.get('status')}"
-            )
+        for quest in active:
+            lines.append(f"  [{quest.get('id')}] {quest.get('name')} — active")
             if quest.get("description"):
                 lines.append(f"    {quest['description']}")
+
+        if not active:
+            lines.append("  (No active quests)")
+
+        summary_parts: list[str] = []
+        if completed:
+            summary_parts.append(f"{completed} completed")
+        if failed:
+            summary_parts.append(f"{failed} failed")
+        if summary_parts:
+            lines.append(f"  ({', '.join(summary_parts)})")
+
         return "\n".join(lines)
 
     def _format_map(self, campaign) -> str:

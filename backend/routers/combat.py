@@ -41,6 +41,12 @@ async def next_turn(
     _: None = Depends(require_session_access),
 ):
     """Advance the initiative order to the next combatant."""
+    current = game_state_manager.get_combat(session_id)
+    if not current.active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active combat encounter for this session.",
+        )
     state = game_state_manager.advance_turn(session_id)
     payload = {"type": "combat_update", **state.to_dict()}
     await session_hub.broadcast(session_id, payload)
@@ -107,6 +113,8 @@ async def remove_combatant(
             detail=f"Combatant {combatant_name!r} not found.",
         )
     state.combatants.pop(idx)
+    if idx < state.turn_index:
+        state.turn_index -= 1
     if state.combatants:
         state.turn_index = state.turn_index % len(state.combatants)
     else:

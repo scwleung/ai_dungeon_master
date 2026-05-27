@@ -13,6 +13,7 @@ import type {
   MapData,
   NarrativeMessage,
   NPC,
+  OOCEntry,
   Quest,
   RulesetName,
   Session,
@@ -89,6 +90,8 @@ export interface PendingRoll {
   skill: string
   /** Difficulty class the result must meet or exceed; absent for open rolls. */
   dc?: number
+  advantage?: boolean
+  disadvantage?: boolean
 }
 
 /** A player who has joined the current session, as reported by the server. */
@@ -327,6 +330,16 @@ export interface GameStore {
   timeline: TimelineEntry[]
   setTimeline: (t: TimelineEntry[]) => void
   loadTimeline: (campaignId: string) => Promise<void>
+
+  // OOC Chat
+  oocMessages: OOCEntry[]
+  addOOCMessage: (entry: OOCEntry) => void
+  clearOOCMessages: () => void
+
+  // Ready state
+  readyState: Record<string, boolean>
+  setReadyResponse: (playerId: string, ready: boolean) => void
+  clearReadyState: () => void
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -643,4 +656,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // ignore — timeline may not exist yet
     }
   },
+
+  // OOC Chat
+  oocMessages: [],
+  addOOCMessage: (entry) => set((state) => ({ oocMessages: [...state.oocMessages, entry] })),
+  clearOOCMessages: () => set({ oocMessages: [] }),
+
+  // Ready state
+  readyState: {},
+  setReadyResponse: (playerId, ready) => set((state) => ({ readyState: { ...state.readyState, [playerId]: ready } })),
+  clearReadyState: () => set({ readyState: {} }),
 }))

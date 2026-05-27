@@ -347,6 +347,7 @@ function CombatantRow({
 }) {
   const hpPct = combatant.hp_max > 0 ? (combatant.hp_current / combatant.hp_max) * 100 : 0
   const hpClass = hpPct > 50 ? 'high' : hpPct > 25 ? 'mid' : 'low'
+  const [editingHP, setEditingHP] = useState<{ name: string; delta: string } | null>(null)
 
   return (
     <div className={`combat-row ${isActive ? 'combat-row--active' : ''} ${combatant.is_player ? 'combat-row--player' : 'combat-row--enemy'}`}>
@@ -368,9 +369,44 @@ function CombatantRow({
         )}
       </div>
       <div className="combat-row-hp">
-        <span className={`combat-hp-text hp-${hpClass}`}>
+        <span
+          onClick={() => setEditingHP({ name: combatant.name, delta: '' })}
+          style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}
+          title="Click to adjust HP"
+          className={`combat-hp-text hp-${hpClass}`}
+        >
           {combatant.hp_current}/{combatant.hp_max}
         </span>
+        {editingHP?.name === combatant.name && (
+          <span style={{ display: 'inline-flex', gap: '0.25rem', alignItems: 'center', marginLeft: '0.25rem' }}>
+            <input
+              type="number"
+              value={editingHP.delta}
+              onChange={e => setEditingHP({ name: combatant.name, delta: e.target.value })}
+              placeholder="±HP"
+              style={{ width: 52, fontSize: '0.75rem', padding: '0.1rem 0.25rem', background: 'var(--color-bg)', border: '1px solid var(--color-accent)', borderRadius: 3, color: 'var(--color-text)' }}
+              autoFocus
+              onKeyDown={async e => {
+                if (e.key === 'Enter') {
+                  const delta = parseInt(editingHP.delta)
+                  if (!isNaN(delta) && sessionId) {
+                    await api.combat.updateCombatantHP(sessionId, combatant.name, delta)
+                  }
+                  setEditingHP(null)
+                }
+                if (e.key === 'Escape') setEditingHP(null)
+              }}
+            />
+            <button onClick={async () => {
+              const delta = parseInt(editingHP.delta)
+              if (!isNaN(delta) && sessionId) {
+                await api.combat.updateCombatantHP(sessionId, combatant.name, delta)
+              }
+              setEditingHP(null)
+            }} style={{ fontSize: '0.7rem', padding: '0.1rem 0.3rem', background: 'var(--color-accent)', border: 'none', borderRadius: 3, cursor: 'pointer', color: 'var(--color-bg)' }}>✓</button>
+            <button onClick={() => setEditingHP(null)} style={{ fontSize: '0.7rem', padding: '0.1rem 0.3rem', background: 'none', border: '1px solid var(--color-border)', borderRadius: 3, cursor: 'pointer', color: 'var(--color-muted)' }}>✕</button>
+          </span>
+        )}
         <div className="combat-hp-bar">
           <div
             className={`combat-hp-fill hp-${hpClass}`}

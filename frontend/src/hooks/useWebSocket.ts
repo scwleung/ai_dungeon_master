@@ -156,6 +156,8 @@ export function useWebSocket(sessionId: string | null) {
             dice: msg.dice,
             skill: msg.skill,
             dc: msg.dc,
+            advantage: msg.advantage,
+            disadvantage: msg.disadvantage,
           })
           s.appendMessage({
             id: `dice_req_${msg.roll_request_id}`,
@@ -352,6 +354,33 @@ export function useWebSocket(sessionId: string | null) {
           s.setActiveHandout(msg.handout)
           break
         }
+
+        case 'ooc_broadcast': {
+          s.addOOCMessage({
+            id: crypto.randomUUID(),
+            player_id: msg.player_id,
+            player_name: msg.player_name,
+            text: msg.text,
+            timestamp: msg.timestamp,
+          })
+          break
+        }
+
+        case 'ready_check': {
+          s.clearReadyState()
+          s.appendMessage({
+            id: `ready_${Date.now()}`,
+            role: 'system',
+            text: `🙋 Ready check from DM: "${msg.message}"`,
+            timestamp: new Date().toISOString(),
+          })
+          break
+        }
+
+        case 'ready_response': {
+          s.setReadyResponse(msg.player_id, msg.ready)
+          break
+        }
       }
     }
   }, [sessionId])
@@ -427,5 +456,28 @@ export function useWebSocket(sessionId: string | null) {
     [send]
   )
 
-  return { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate }
+  const sendOOC = useCallback(
+    (text: string) => {
+      const { settings } = storeRef.current
+      send({ type: 'ooc_message' as any, player_id: settings.playerId, player_name: settings.playerName, text } as any)
+    },
+    [send]
+  )
+
+  const sendReadyCheck = useCallback(
+    (message: string) => {
+      send({ type: 'ready_check' as any, message } as any)
+    },
+    [send]
+  )
+
+  const sendReadyResponse = useCallback(
+    (ready: boolean) => {
+      const { settings } = storeRef.current
+      send({ type: 'ready_response' as any, player_id: settings.playerId, player_name: settings.playerName, ready } as any)
+    },
+    [send]
+  )
+
+  return { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate, sendOOC, sendReadyCheck, sendReadyResponse }
 }

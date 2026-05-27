@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { api } from '../api/client'
 import { useGameStore } from '../store/gameStore'
 import type { Character } from '../types'
 import LevelUpWizard from './LevelUpWizard'
@@ -7,6 +8,7 @@ interface Props {
   character: Character
   onUpdate: (id: string, updates: Partial<Character>) => void
   onSendAction?: (text: string) => void
+  onRollSkill?: (skill: string, modifier: number) => void
 }
 
 const XP_TO_NEXT: Record<number, number> = {
@@ -36,6 +38,20 @@ function calcModifier(score: number): string {
   const mod = Math.floor((score - 10) / 2)
   return mod >= 0 ? `+${mod}` : `${mod}`
 }
+
+function abilityMod(score: number): number { return Math.floor((score - 10) / 2) }
+
+const SKILLS = [
+  { name: 'Acrobatics', ability: 'DEX' }, { name: 'Animal Handling', ability: 'WIS' },
+  { name: 'Arcana', ability: 'INT' }, { name: 'Athletics', ability: 'STR' },
+  { name: 'Deception', ability: 'CHA' }, { name: 'History', ability: 'INT' },
+  { name: 'Insight', ability: 'WIS' }, { name: 'Intimidation', ability: 'CHA' },
+  { name: 'Investigation', ability: 'INT' }, { name: 'Medicine', ability: 'WIS' },
+  { name: 'Nature', ability: 'INT' }, { name: 'Perception', ability: 'WIS' },
+  { name: 'Performance', ability: 'CHA' }, { name: 'Persuasion', ability: 'CHA' },
+  { name: 'Religion', ability: 'INT' }, { name: 'Sleight of Hand', ability: 'DEX' },
+  { name: 'Stealth', ability: 'DEX' }, { name: 'Survival', ability: 'WIS' },
+] as const
 
 function Section({
   title,
@@ -72,7 +88,7 @@ function Section({
  *                   from the Zustand store.
  * @param onSendAction - Optional callback to send a player action text to the DM.
  */
-export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
+export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill }: Props) {
   const { updateCharacter } = useGameStore()
   const [newItem, setNewItem] = useState('')
   const [newCondition, setNewCondition] = useState('')
@@ -83,6 +99,10 @@ export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
   const [levelUpAlert, setLevelUpAlert] = useState(false)
   const [showLevelUp, setShowLevelUp] = useState(false)
   const prevXpRef = useRef(character.xp ?? 0)
+  const [newSpellName, setNewSpellName] = useState('')
+  const [newSpellLevel, setNewSpellLevel] = useState(0)
+  const [showHistory, setShowHistory] = useState(false)
+  const [auditLog, setAuditLog] = useState<Array<{ timestamp: string; change: string }>>(character.audit_log ?? [])
 
   // Detect level-up when XP changes
   useEffect(() => {
@@ -381,6 +401,32 @@ export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
           </div>
         </Section>
 
+        {/* Skills */}
+        <Section title="🎯 Skills" defaultOpen={false}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+            {SKILLS.map((sk) => {
+              const score = character.stats[sk.ability as keyof Character['stats']]
+              const mod = abilityMod(score)
+              const sign = mod >= 0 ? '+' : ''
+              return (
+                <button
+                  key={sk.name}
+                  onClick={() => onRollSkill?.(sk.name, mod)}
+                  title={`${sk.name} (${sk.ability}) ${sign}${mod}`}
+                  style={{
+                    fontSize: '0.7rem', padding: '0.15rem 0.4rem',
+                    background: 'var(--bg-card)', border: '1px solid var(--border)',
+                    borderRadius: 4, cursor: onRollSkill ? 'pointer' : 'default',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  {sk.name} {sign}{mod}
+                </button>
+              )
+            })}
+          </div>
+        </Section>
+
         {/* Conditions */}
         <Section title="Conditions" defaultOpen={true}>
           {character.conditions.length === 0 ? (
@@ -464,6 +510,23 @@ export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
               +
             </button>
           </form>
+          {/* Currency */}
+          <div style={{ marginTop: '0.5rem' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginBottom: '0.25rem' }}>💰 Currency</div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {(['pp', 'gp', 'ep', 'sp', 'cp'] as const).map(coin => (
+                <label key={coin} style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem' }}>
+                  <span style={{ color: 'var(--color-muted)', textTransform: 'uppercase', fontSize: '0.65rem' }}>{coin}</span>
+                  <input
+                    type="number" min={0}
+                    value={character.currency?.[coin] ?? 0}
+                    onChange={e => update({ currency: { ...(character.currency ?? { gp: 0, sp: 0, cp: 0 }), [coin]: parseInt(e.target.value) || 0 } })}
+                    style={{ width: 44, textAlign: 'center', fontSize: '0.75rem', padding: '0.1rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 3, color: 'var(--text-primary)' }}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
         </Section>
 
         {/* Rests */}
@@ -531,6 +594,67 @@ export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
             </div>
           </Section>
         )}
+
+        {/* Spellbook */}
+        <Section title="📚 Spellbook" defaultOpen={false}>
+          {(character.spellbook ?? []).length === 0 ? (
+            <p className="cs-empty">No spells recorded.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginBottom: '0.5rem' }}>
+              {(character.spellbook ?? []).map((spell, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={spell.prepared}
+                    onChange={() => {
+                      const updated = (character.spellbook ?? []).map((s, idx) => idx === i ? { ...s, prepared: !s.prepared } : s)
+                      update({ spellbook: updated })
+                    }}
+                    title="Prepared"
+                  />
+                  <span style={{ flex: 1, color: 'var(--text-primary)' }}>{spell.name}</span>
+                  <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.35rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-muted)' }}>
+                    {spell.level === 0 ? 'Cantrip' : `Lvl ${spell.level}`}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const updated = (character.spellbook ?? []).filter((_, idx) => idx !== i)
+                      update({ spellbook: updated })
+                    }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.85rem', padding: 0 }}
+                  >×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', marginTop: '0.25rem' }}>
+            <input
+              type="text"
+              value={newSpellName}
+              onChange={e => setNewSpellName(e.target.value)}
+              placeholder="Spell name..."
+              style={{ flex: 1, fontSize: '0.75rem', padding: '0.2rem 0.4rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)' }}
+              maxLength={50}
+            />
+            <select
+              value={newSpellLevel}
+              onChange={e => setNewSpellLevel(parseInt(e.target.value))}
+              style={{ fontSize: '0.75rem', padding: '0.2rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)' }}
+            >
+              {[0,1,2,3,4,5,6,7,8,9].map(l => <option key={l} value={l}>{l === 0 ? 'Cantrip' : `L${l}`}</option>)}
+            </select>
+            <button
+              onClick={() => {
+                if (!newSpellName.trim()) return
+                const updated = [...(character.spellbook ?? []), { name: newSpellName.trim(), level: newSpellLevel, prepared: false }]
+                update({ spellbook: updated })
+                setNewSpellName('')
+              }}
+              className="btn-ghost btn-sm"
+              disabled={!newSpellName.trim()}
+            >+</button>
+          </div>
+        </Section>
 
         {/* Resources */}
         {character.resources && Object.keys(character.resources).length > 0 && (
@@ -605,6 +729,40 @@ export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
               ) : (
                 <p className="cs-empty notes-placeholder">Click to add notes...</p>
               )}
+            </div>
+          )}
+        </Section>
+
+        {/* Audit Log */}
+        <Section title="📋 History" defaultOpen={false}>
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowHistory(v => !v)}
+            >{showHistory ? 'Hide History' : 'Show History'}</button>
+            <button
+              className="btn-ghost btn-sm"
+              onClick={async () => {
+                try {
+                  const res = await api.characters.getAuditLog(character.id)
+                  setAuditLog(res.audit_log)
+                } catch {
+                  // ignore
+                }
+              }}
+            >Load</button>
+          </div>
+          {showHistory && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', maxHeight: 200, overflowY: 'auto' }}>
+              {[...auditLog].reverse().slice(0, 20).map((entry, i) => (
+                <div key={i} style={{ fontSize: '0.7rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.2rem' }}>
+                  <span style={{ color: 'var(--text-muted)', marginRight: '0.5rem' }}>
+                    {new Date(entry.timestamp).toLocaleString()}
+                  </span>
+                  <span style={{ color: 'var(--text-secondary)' }}>{entry.change}</span>
+                </div>
+              ))}
+              {auditLog.length === 0 && <p className="cs-empty">No history recorded.</p>}
             </div>
           )}
         </Section>

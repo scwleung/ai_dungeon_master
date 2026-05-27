@@ -62,6 +62,7 @@ export function NarrativeLog() {
 
   const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [showCount, setShowCount] = useState(150)
 
   const filteredMessages = searchQuery.trim()
     ? messages.filter((msg) =>
@@ -69,7 +70,15 @@ export function NarrativeLog() {
       )
     : messages
 
+  const visibleMessages = filteredMessages.slice(-showCount)
+  const hasMore = filteredMessages.length > showCount
+
   const matchCount = searchQuery.trim() ? filteredMessages.length : 0
+
+  // Reset showCount when search query changes
+  useEffect(() => {
+    setShowCount(150)
+  }, [searchQuery])
 
   // Focus search input when it appears
   useEffect(() => {
@@ -191,7 +200,14 @@ export function NarrativeLog() {
           </div>
         )}
 
-        {filteredMessages.map((msg) => (
+        {hasMore && (
+          <button
+            onClick={() => setShowCount(c => c + 100)}
+            style={{ width: '100%', padding: '0.4rem', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '0.5rem' }}
+          >Show {filteredMessages.length - showCount} older messages</button>
+        )}
+
+        {visibleMessages.map((msg) => (
           <MessageItem key={msg.id} msg={msg} />
         ))}
 

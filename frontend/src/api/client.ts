@@ -100,6 +100,18 @@ export const api = {
       request<void>('DELETE', `/api/campaigns/${campaignId}/timeline/${entryId}`),
     generateLoot: (id: string, data: { cr: number; environment: string; count?: number }) =>
       request<{ campaign_id: string; items: string[] }>('POST', `/api/campaigns/${id}/loot`, data),
+    getDMNotes: (sessionId: string) =>
+      request<{ session_id: string; dm_notes: string }>('GET', `/api/campaigns/sessions/${sessionId}/dm-notes`),
+    saveDMNotes: (sessionId: string, dm_notes: string) =>
+      request<{ session_id: string; dm_notes: string }>('PUT', `/api/campaigns/sessions/${sessionId}/dm-notes`, { dm_notes }),
+    getReadalouds: (campaignId: string) =>
+      request<{ campaign_id: string; readalouds: Array<{ id: string; title: string; content: string; created_at: string }> }>('GET', `/api/campaigns/${campaignId}/readalouds`),
+    createReadaloud: (campaignId: string, data: { title: string; content: string }) =>
+      request<{ campaign_id: string; readaloud: { id: string; title: string; content: string; created_at: string } }>('POST', `/api/campaigns/${campaignId}/readalouds`, data),
+    deleteReadaloud: (campaignId: string, id: string) =>
+      request<void>('DELETE', `/api/campaigns/${campaignId}/readalouds/${id}`),
+    generateNames: (campaignId: string, data: { race: string; count?: number }) =>
+      request<{ campaign_id: string; names: string[] }>('POST', `/api/campaigns/${campaignId}/generate-names`, data),
   },
 
   /** Session lifecycle operations scoped to a campaign. */
@@ -138,6 +150,8 @@ export const api = {
       request<{ data: Character }>('PUT', `/api/characters/${id}`, data),
     /** Permanently delete a character by ID. */
     delete: (id: string) => request<void>('DELETE', `/api/characters/${id}`),
+    getAuditLog: (characterId: string) =>
+      request<{ character_id: string; audit_log: Array<{ timestamp: string; change: string }> }>('GET', `/api/characters/${characterId}/audit-log`),
   },
 
   /** Dungeon map operations. */
@@ -206,6 +220,8 @@ export const api = {
       request<void>('DELETE', `/api/sessions/${sessionId}/combat/combatants/${encodeURIComponent(name)}`),
     rollInitiative: (sessionId: string) =>
       request<void>('POST', `/api/sessions/${sessionId}/combat/roll-initiative`),
+    updateCombatantHP: (sessionId: string, combatantName: string, delta: number) =>
+      request<void>('PATCH', `/api/sessions/${sessionId}/combat/combatants/${encodeURIComponent(combatantName)}/hp`, { delta }),
   },
 
   /** Text-to-speech operations. */

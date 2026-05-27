@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { api } from '../api/client'
 import { useGameStore } from '../store/gameStore'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { NarrativeLog } from './NarrativeLog'
@@ -20,6 +21,10 @@ import AmbientSound from './AmbientSound'
 import WorldClock from './WorldClock'
 import Handouts from './Handouts'
 import Bestiary from './Bestiary'
+import OOCChat from './OOCChat'
+import DMNotes from './DMNotes'
+import ReadAloud from './ReadAloud'
+import SpellReference from './SpellReference'
 
 /**
  * Root layout for an active play session.
@@ -82,6 +87,9 @@ export function SessionView() {
     loadHandouts,
     activeHandout,
     setActiveHandout,
+    messages,
+    readyState,
+    clearReadyState,
   } = useGameStore()
 
   const isDM = !!(activeCampaign && campaignTokens[activeCampaign.id])
@@ -102,6 +110,15 @@ export function SessionView() {
   const [showWorldClock, setShowWorldClock] = useState(false)
   const [showHandouts, setShowHandouts] = useState(false)
   const [showBestiary, setShowBestiary] = useState(false)
+  const [showOOC, setShowOOC] = useState(false)
+  const [showDMNotes, setShowDMNotes] = useState(false)
+  const [showReadAloud, setShowReadAloud] = useState(false)
+  const [showSpellRef, setShowSpellRef] = useState(false)
+  const [showReadyCheck, setShowReadyCheck] = useState(false)
+  const [readyCheckMsg, setReadyCheckMsg] = useState('Are you ready to continue?')
+  const [showNameGen, setShowNameGen] = useState(false)
+  const [nameGenRace, setNameGenRace] = useState('human')
+  const [generatedNames, setGeneratedNames] = useState<string[]>([])
   const [showAddPin, setShowAddPin] = useState(false)
   const [pinInput, setPinInput] = useState('')
   const [endingSession, setEndingSession] = useState(false)
@@ -109,7 +126,7 @@ export function SessionView() {
   const [copiedInvite, setCopiedInvite] = useState(false)
   const [copiedSpectator, setCopiedSpectator] = useState(false)
 
-  const { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate } =
+  const { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate, sendOOC, sendReadyCheck, sendReadyResponse } =
     useWebSocket(activeSession?.id ?? null)
 
   // Auto-show dice camera and dice roller when a roll is pending
@@ -374,6 +391,22 @@ export function SessionView() {
             </button>
           )}
           {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowOOC(v => !v)}>💬 OOC</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowDMNotes(true)}>🔒 DM Notes</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowReadAloud(true)}>📢 Read Aloud</button>
+          )}
+          <button className="btn-ghost btn-sm" onClick={() => setShowSpellRef(v => !v)}>✨ Spells</button>
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowReadyCheck(v => !v)}>🙋 Ready Check</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowNameGen(v => !v)}>🎲 Names</button>
+          )}
+          {isDM && !isSpectator && (
             <button
               className="btn-ghost btn-sm invite-btn"
               onClick={handleCopyInvite}
@@ -522,6 +555,61 @@ export function SessionView() {
               🎵 {currentAmbient.charAt(0).toUpperCase() + currentAmbient.slice(1)}
             </div>
           )}
+          {/* Ready Check UI (DM) */}
+          {showReadyCheck && isDM && !isSpectator && (
+            <div style={{ padding: '0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, marginBottom: '0.5rem', margin: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.4rem' }}>
+                <input
+                  value={readyCheckMsg}
+                  onChange={e => setReadyCheckMsg(e.target.value)}
+                  style={{ flex: 1, fontSize: '0.8rem', padding: '0.3rem 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)' }}
+                />
+                <button onClick={() => { sendReadyCheck(readyCheckMsg); clearReadyState() }} style={{ fontSize: '0.8rem', padding: '0.3rem 0.6rem', background: 'var(--accent)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'var(--bg-primary)' }}>Send Ready Check</button>
+                <button onClick={() => setShowReadyCheck(false)} style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
+              </div>
+              {activePlayers.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                  {activePlayers.map(p => (
+                    <span key={p.player_id} style={{ marginRight: '0.5rem', fontSize: '0.75rem', color: readyState[p.player_id] ? 'var(--accent)' : 'var(--text-muted)' }}>
+                      {readyState[p.player_id] ? '✓' : '○'} {p.player_name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Ready Response UI (players) */}
+          {!isDM && !isSpectator && messages.some(m => m.role === 'system' && m.text.includes('Ready check')) && (
+            <div style={{ display: 'flex', gap: '0.5rem', padding: '0.5rem' }}>
+              <button onClick={() => sendReadyResponse(true)} style={{ background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, padding: '0.3rem 0.8rem', cursor: 'pointer' }}>✅ Ready</button>
+              <button onClick={() => sendReadyResponse(false)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4, padding: '0.3rem 0.8rem', cursor: 'pointer', color: 'var(--text-primary)' }}>❌ Not Ready</button>
+            </div>
+          )}
+          {/* NPC Name Generator */}
+          {showNameGen && isDM && !isSpectator && (
+            <div style={{ padding: '0.75rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, marginBottom: '0.5rem', margin: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <input value={nameGenRace} onChange={e => setNameGenRace(e.target.value)} placeholder="Race (e.g. elf)" style={{ flex: 1, padding: '0.3rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: '0.85rem' }} />
+                <button onClick={async () => {
+                  if (!activeCampaign) return
+                  try {
+                    const res = await api.campaigns.generateNames(activeCampaign.id, { race: nameGenRace, count: 6 })
+                    setGeneratedNames(res.names)
+                  } catch {
+                    // ignore
+                  }
+                }} style={{ fontSize: '0.8rem', padding: '0.3rem 0.6rem', background: 'var(--accent)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'var(--bg-primary)' }}>Generate</button>
+                <button onClick={() => setShowNameGen(false)} style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
+              </div>
+              {generatedNames.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                  {generatedNames.map((n, i) => (
+                    <button key={i} onClick={() => { sendAction(`NPC: ${n}`) }} style={{ padding: '0.2rem 0.5rem', fontSize: '0.8rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-primary)' }}>{n}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <NarrativeLog />
           {/* PTT recording indicator */}
           {recordingPlayers.size > 0 && (
@@ -627,6 +715,10 @@ export function SessionView() {
               character={myCharacter}
               onUpdate={updateCharacter}
               onSendAction={isSpectator ? undefined : sendAction}
+              onRollSkill={(skill, mod) => {
+                const sign = mod >= 0 ? '+' : ''
+                sendAction(`Rolling ${skill} check (${sign}${mod})`)
+              }}
             />
           </div>
         )}
@@ -718,6 +810,29 @@ export function SessionView() {
 
       {/* Bestiary panel */}
       {showBestiary && <Bestiary onClose={() => setShowBestiary(false)} />}
+
+      {/* OOC Chat */}
+      {showOOC && (
+        <OOCChat onSend={sendOOC} onClose={() => setShowOOC(false)} />
+      )}
+
+      {/* DM Notes */}
+      {showDMNotes && activeSession && (
+        <DMNotes sessionId={activeSession.id} onClose={() => setShowDMNotes(false)} />
+      )}
+
+      {/* Read Aloud */}
+      {showReadAloud && activeCampaign && (
+        <ReadAloud
+          campaignId={activeCampaign.id}
+          isDM={isDM && !isSpectator}
+          onRead={(text) => sendAction(`[Read Aloud] ${text}`)}
+          onClose={() => setShowReadAloud(false)}
+        />
+      )}
+
+      {/* Spell Reference */}
+      {showSpellRef && <SpellReference onClose={() => setShowSpellRef(false)} />}
 
       {/* DM Voice (hidden, auto-plays) */}
       <DMVoice />

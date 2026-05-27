@@ -165,6 +165,19 @@ export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
         <div className="cs-name-row">
           <span className="cs-char-name">{character.name}</span>
           <span className="cs-level-badge">Lv {character.level}</span>
+          <button
+            onClick={() => update({ inspiration: !character.inspiration })}
+            style={{
+              padding: '0.15rem 0.5rem',
+              fontSize: '0.7rem',
+              borderRadius: 4,
+              border: '1px solid var(--color-accent)',
+              background: character.inspiration ? 'var(--color-accent)' : 'transparent',
+              color: character.inspiration ? 'var(--color-bg)' : 'var(--color-accent)',
+              cursor: 'pointer',
+            }}
+            title="Toggle Inspiration"
+          >✦ Inspired</button>
         </div>
         <div className="cs-class-row">
           {character.race} {character.class_name}
@@ -253,6 +266,57 @@ export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
           </div>
         </div>
 
+        {/* Death Saves */}
+        {character.hp_current === 0 && (
+          <div style={{ marginTop: '0.5rem' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>Death Saves</div>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+              <span style={{ fontSize: '0.75rem' }}>✓</span>
+              {[0, 1, 2].map(i => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    const ds = character.death_saves ?? { successes: 0, failures: 0 }
+                    const newSuccesses = i < ds.successes ? i : Math.min(3, ds.successes + 1)
+                    update({ death_saves: { ...ds, successes: newSuccesses } })
+                  }}
+                  style={{
+                    width: 20, height: 20, borderRadius: '50%',
+                    border: '1px solid var(--color-accent)',
+                    background: i < (character.death_saves?.successes ?? 0) ? 'var(--color-accent)' : 'transparent',
+                    cursor: 'pointer', padding: 0,
+                  }}
+                  title={`Success ${i + 1}`}
+                />
+              ))}
+              <span style={{ fontSize: '0.75rem', marginLeft: '0.5rem' }}>✗</span>
+              {[0, 1, 2].map(i => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    const ds = character.death_saves ?? { successes: 0, failures: 0 }
+                    const newFailures = i < ds.failures ? i : Math.min(3, ds.failures + 1)
+                    update({ death_saves: { ...ds, failures: newFailures } })
+                  }}
+                  style={{
+                    width: 20, height: 20, borderRadius: '50%',
+                    border: '1px solid #e74c3c',
+                    background: i < (character.death_saves?.failures ?? 0) ? '#e74c3c' : 'transparent',
+                    cursor: 'pointer', padding: 0,
+                  }}
+                  title={`Failure ${i + 1}`}
+                />
+              ))}
+            </div>
+            {(character.death_saves?.successes ?? 0) >= 3 && (
+              <div style={{ color: 'var(--color-accent)', fontSize: '0.75rem' }}>Stabilized!</div>
+            )}
+            {(character.death_saves?.failures ?? 0) >= 3 && (
+              <div style={{ color: '#e74c3c', fontSize: '0.75rem' }}>Character died!</div>
+            )}
+          </div>
+        )}
+
         {/* XP Bar */}
         {character.xp !== undefined && (
           <div className="cs-xp-section">
@@ -328,6 +392,19 @@ export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
               +
             </button>
           </form>
+          {/* Concentration */}
+          <div style={{ marginTop: '0.5rem' }}>
+            {character.concentration ? (
+              <div style={{ fontSize: '0.8rem', color: 'var(--color-accent)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span>🔵 Concentrating: {character.concentration}</span>
+                <button
+                  onClick={() => update({ concentration: undefined })}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', fontSize: '0.75rem' }}
+                  title="Break concentration"
+                >✕</button>
+              </div>
+            ) : null}
+          </div>
         </Section>
 
         {/* Inventory */}

@@ -95,11 +95,12 @@ export function useWebSocket(sessionId: string | null) {
       setConnected(false)
       wsRef.current = null
 
-      // Exponential backoff reconnect
-      const delay = Math.min(
+      // Exponential backoff reconnect with jitter
+      const baseDelay = Math.min(
         BASE_RECONNECT_MS * 2 ** reconnectAttemptRef.current,
         MAX_RECONNECT_MS
       )
+      const delay = baseDelay * (0.5 + Math.random() * 0.5)
       reconnectAttemptRef.current += 1
       reconnectTimeoutRef.current = setTimeout(() => {
         if (!unmountedRef.current && sessionId) {
@@ -307,6 +308,21 @@ export function useWebSocket(sessionId: string | null) {
           s.setPinnedNotes(msg.pins)
           break
         }
+
+        case 'voice_recording': {
+          s.setPlayerRecording(msg.player_id, msg.active)
+          break
+        }
+
+        case 'ambient_update': {
+          s.setCurrentAmbient(msg.sound)
+          break
+        }
+
+        case 'map_annotation_update': {
+          s.setMapAnnotations(msg.annotations)
+          break
+        }
       }
     }
   }, [sessionId])
@@ -367,5 +383,20 @@ export function useWebSocket(sessionId: string | null) {
     [send]
   )
 
-  return { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll }
+  const sendVoiceRecording = useCallback(
+    (active: boolean) => {
+      const { settings } = storeRef.current
+      send({ type: 'voice_recording' as any, player_id: settings.playerId, active } as any)
+    },
+    [send]
+  )
+
+  const sendAmbientUpdate = useCallback(
+    (sound: string) => {
+      send({ type: 'ambient_update' as any, sound } as any)
+    },
+    [send]
+  )
+
+  return { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate }
 }

@@ -1,12 +1,14 @@
 import { create } from 'zustand'
 import { api, setAccessCode } from '../api/client'
 import type {
+  AmbientSound,
   AppView,
   Campaign,
   Character,
   Combatant,
   DiceLogEntry,
   GameSettings,
+  MapAnnotation,
   MapData,
   NarrativeMessage,
   NPC,
@@ -283,6 +285,24 @@ export interface GameStore {
   loadPinnedNotes: (sessionId: string) => Promise<void>
   setPinnedNotes: (pins: Array<{ id: string; text: string }>) => void
   savePinnedNotes: (sessionId: string, pins: Array<{ id: string; text: string }>) => Promise<void>
+
+  // Map annotations
+  mapAnnotations: MapAnnotation[]
+  setMapAnnotations: (annotations: MapAnnotation[]) => void
+  loadMapAnnotations: (campaignId: string) => Promise<void>
+  saveMapAnnotations: (campaignId: string, annotations: MapAnnotation[]) => Promise<void>
+
+  // Ambient sound
+  currentAmbient: AmbientSound
+  setCurrentAmbient: (sound: AmbientSound) => void
+
+  // Recording players
+  recordingPlayers: Set<string>
+  setPlayerRecording: (playerId: string, active: boolean) => void
+
+  // Dice macros
+  diceMacros: Array<{ id: string; name: string; notation: string }>
+  setDiceMacros: (macros: Array<{ id: string; name: string; notation: string }>) => void
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -507,5 +527,53 @@ export const useGameStore = create<GameStore>((set, get) => ({
   savePinnedNotes: async (sessionId, pins) => {
     set({ pinnedNotes: pins })
     await api.pins.update(sessionId, pins)
+  },
+
+  // Map annotations
+  mapAnnotations: [],
+  setMapAnnotations: (annotations) => set({ mapAnnotations: annotations }),
+  loadMapAnnotations: async (campaignId) => {
+    try {
+      const res = await api.map.getAnnotations(campaignId)
+      set({ mapAnnotations: res.annotations })
+    } catch {
+      // ignore — annotations may not exist yet
+    }
+  },
+  saveMapAnnotations: async (campaignId, annotations) => {
+    set({ mapAnnotations: annotations })
+    try {
+      await api.map.updateAnnotations(campaignId, annotations)
+    } catch {
+      // ignore
+    }
+  },
+
+  // Ambient sound
+  currentAmbient: 'none',
+  setCurrentAmbient: (sound) => set({ currentAmbient: sound }),
+
+  // Recording players
+  recordingPlayers: new Set(),
+  setPlayerRecording: (playerId, active) => set(state => {
+    const next = new Set(state.recordingPlayers)
+    if (active) next.add(playerId)
+    else next.delete(playerId)
+    return { recordingPlayers: next }
+  }),
+
+  // Dice macros
+  diceMacros: (() => {
+    try {
+      const raw = localStorage.getItem('dm_dice_macros')
+      if (raw) return JSON.parse(raw) as Array<{ id: string; name: string; notation: string }>
+    } catch { /* ignore */ }
+    return []
+  })(),
+  setDiceMacros: (macros) => {
+    set({ diceMacros: macros })
+    try {
+      localStorage.setItem('dm_dice_macros', JSON.stringify(macros))
+    } catch { /* ignore */ }
   },
 }))

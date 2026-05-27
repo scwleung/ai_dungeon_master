@@ -14,6 +14,9 @@ import { DungeonMap } from './DungeonMap'
 import { NPCTracker } from './NPCTracker'
 import { QuestTracker } from './QuestTracker'
 import { SessionNotes } from './SessionNotes'
+import EncounterBuilder from './EncounterBuilder'
+import DiceMacros from './DiceMacros'
+import AmbientSound from './AmbientSound'
 
 /**
  * Root layout for an active play session.
@@ -63,6 +66,12 @@ export function SessionView() {
     endSession,
     setView,
     isSpectator,
+    mapAnnotations,
+    loadMapAnnotations,
+    saveMapAnnotations,
+    currentAmbient,
+    setCurrentAmbient,
+    recordingPlayers,
   } = useGameStore()
 
   const isDM = !!(activeCampaign && campaignTokens[activeCampaign.id])
@@ -77,6 +86,9 @@ export function SessionView() {
   const [showDiceLogPanel, setShowDiceLogPanel] = useState(false)
   const [showNotesPanel, setShowNotesPanel] = useState(false)
   const [showPartyPanel, setShowPartyPanel] = useState(false)
+  const [showEncounterBuilder, setShowEncounterBuilder] = useState(false)
+  const [showDiceMacros, setShowDiceMacros] = useState(false)
+  const [showAmbientPanel, setShowAmbientPanel] = useState(false)
   const [showAddPin, setShowAddPin] = useState(false)
   const [pinInput, setPinInput] = useState('')
   const [endingSession, setEndingSession] = useState(false)
@@ -84,7 +96,7 @@ export function SessionView() {
   const [copiedInvite, setCopiedInvite] = useState(false)
   const [copiedSpectator, setCopiedSpectator] = useState(false)
 
-  const { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll } =
+  const { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate } =
     useWebSocket(activeSession?.id ?? null)
 
   // Auto-show dice camera and dice roller when a roll is pending
@@ -117,12 +129,13 @@ export function SessionView() {
     }
   }, [activeSession?.id, loadSessionNotes, loadPinnedNotes])
 
-  // Load party state when campaign is set
+  // Load party state and map annotations when campaign is set
   useEffect(() => {
     if (activeCampaign) {
       loadPartyState(activeCampaign.id).catch(() => {})
+      loadMapAnnotations(activeCampaign.id).catch(() => {})
     }
-  }, [activeCampaign, loadPartyState])
+  }, [activeCampaign, loadPartyState, loadMapAnnotations])
 
   function handleRemovePin(id: string) {
     if (!activeSession) return
@@ -302,6 +315,33 @@ export function SessionView() {
           )}
           {isDM && !isSpectator && (
             <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowEncounterBuilder(v => !v)}
+              title="Open encounter builder"
+            >
+              ⚔ Encounter
+            </button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowDiceMacros(v => !v)}
+              title="Open dice macros"
+            >
+              🎲 Macros
+            </button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowAmbientPanel(v => !v)}
+              title="Open ambient sound"
+            >
+              🎵 Ambient
+            </button>
+          )}
+          {isDM && !isSpectator && (
+            <button
               className="btn-ghost btn-sm invite-btn"
               onClick={handleCopyInvite}
               title="Copy invite link"
@@ -434,11 +474,37 @@ export function SessionView() {
               </div>
             ) : null
           )}
+          {/* Ambient badge */}
+          {currentAmbient !== 'none' && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', padding: '0.25rem 0.5rem' }}>
+              🎵 {currentAmbient.charAt(0).toUpperCase() + currentAmbient.slice(1)}
+            </div>
+          )}
           <NarrativeLog />
+          {/* PTT recording indicator */}
+          {recordingPlayers.size > 0 && (
+            <div style={{ display: 'flex', gap: '0.5rem', padding: '0.25rem 0.5rem', flexWrap: 'wrap' }}>
+              {Array.from(recordingPlayers).map(pid => {
+                const player = activePlayers.find(p => p.player_id === pid)
+                return (
+                  <span key={pid} style={{
+                    fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: 10,
+                    background: 'rgba(231, 76, 60, 0.2)', color: '#e74c3c',
+                    animation: 'pulse 1s infinite',
+                  }}>
+                    🎙 {player?.player_name ?? pid}
+                  </span>
+                )
+              })}
+            </div>
+          )}
           {!isSpectator && (
             <PlayerInput
               onSendAction={sendAction}
-              onSendVoiceTranscript={sendVoiceTranscript}
+              onSendVoiceTranscript={(transcript) => {
+                sendVoiceRecording(false)
+                sendVoiceTranscript(transcript)
+              }}
               onOpenDiceCamera={() => setShowDiceCamera(true)}
               onOpenDiceRoller={() => setShowDiceRoller(true)}
               connected={connected}
@@ -501,7 +567,14 @@ export function SessionView() {
         {/* Right Panel: Dungeon Map */}
         {showMapPanel && (
           <div className="map-panel">
-            <DungeonMap onClose={() => setShowMapPanel(false)} />
+            <DungeonMap
+              onClose={() => setShowMapPanel(false)}
+              annotations={mapAnnotations}
+              isDM={isDM && !isSpectator}
+              onAnnotationsChange={(annotations) => {
+                if (activeCampaign) saveMapAnnotations(activeCampaign.id, annotations)
+              }}
+            />
           </div>
         )}
 
@@ -524,6 +597,46 @@ export function SessionView() {
           onSendManualRoll={sendManualRoll}
           onClose={() => setShowDiceCamera(false)}
         />
+      )}
+
+      {/* Encounter Builder overlay */}
+      {showEncounterBuilder && (
+        <div className="dm-overlay-panel">
+          <EncounterBuilder
+            onStartEncounter={(desc) => { sendAction(desc); setShowEncounterBuilder(false) }}
+            onClose={() => setShowEncounterBuilder(false)}
+          />
+        </div>
+      )}
+
+      {/* Dice Macros overlay */}
+      {showDiceMacros && (
+        <div className="dm-overlay-panel">
+          <DiceMacros
+            onRoll={(values, total, notation) => {
+              if (pendingRoll) {
+                sendManualRoll(pendingRoll.roll_request_id, values, total)
+              } else {
+                sendAction(`🎲 ${notation}: [${values.join(', ')}] = ${total}`)
+              }
+            }}
+            onClose={() => setShowDiceMacros(false)}
+          />
+        </div>
+      )}
+
+      {/* Ambient Sound overlay */}
+      {showAmbientPanel && (
+        <div className="dm-overlay-panel">
+          <AmbientSound
+            currentAmbient={currentAmbient}
+            onSelect={(sound) => {
+              setCurrentAmbient(sound)
+              sendAmbientUpdate(sound)
+            }}
+            onClose={() => setShowAmbientPanel(false)}
+          />
+        </div>
       )}
 
       {/* DM Voice (hidden, auto-plays) */}
@@ -972,6 +1085,22 @@ export function SessionView() {
           .session-campaign {
             display: none;
           }
+        }
+
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+
+        .dm-overlay-panel {
+          position: fixed;
+          top: 60px;
+          right: var(--space-4);
+          z-index: 300;
+          box-shadow: 0 4px 24px var(--shadow-lg);
+          border-radius: var(--radius);
+          max-width: 360px;
+          width: 90vw;
         }
       `}</style>
     </div>

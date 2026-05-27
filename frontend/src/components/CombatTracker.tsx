@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { useGameStore } from '../store/gameStore'
 import type { Combatant } from '../types'
@@ -17,6 +17,30 @@ import { ConditionReference } from './ConditionReference'
 export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: boolean }) {
   const { combatActive, combatRound, combatTurnIndex, combatants, activeSession } = useGameStore()
   const sessionId = activeSession?.id ?? null
+
+  const [turnDuration, setTurnDuration] = useState(60)
+  const [timeLeft, setTimeLeft] = useState<number | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (!combatActive) {
+      setTimeLeft(null)
+      if (timerRef.current) clearInterval(timerRef.current)
+      return
+    }
+    if (timerRef.current) clearInterval(timerRef.current)
+    setTimeLeft(turnDuration)
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(timerRef.current!)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  }, [combatTurnIndex, combatActive, turnDuration])
 
   const [nextTurnLoading, setNextTurnLoading] = useState(false)
   const [endCombatLoading, setEndCombatLoading] = useState(false)
@@ -165,6 +189,35 @@ export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: bo
 
       {controlError && (
         <div className="combat-control-error">{controlError}</div>
+      )}
+
+      {combatActive && timeLeft !== null && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.25rem 0.5rem', marginBottom: '0.5rem',
+          background: timeLeft <= 10 ? 'rgba(231, 76, 60, 0.2)' : 'transparent',
+          border: timeLeft <= 10 ? '1px solid #e74c3c' : '1px solid transparent',
+          borderRadius: 4, transition: 'all 0.3s',
+        }}>
+          <span style={{ fontSize: '0.8rem', color: timeLeft <= 10 ? '#e74c3c' : 'var(--color-muted)' }}>
+            ⏱ {timeLeft}s
+          </span>
+          <input
+            type="number" min={10} max={300} value={turnDuration}
+            onChange={e => setTurnDuration(Number(e.target.value))}
+            style={{ width: 48, fontSize: '0.75rem', padding: '0.1rem 0.25rem',
+              background: 'var(--color-bg)', border: '1px solid var(--color-border)',
+              borderRadius: 3, color: 'var(--color-text)' }}
+            title="Seconds per turn"
+          />
+          <span style={{ fontSize: '0.7rem', color: 'var(--color-muted)' }}>s/turn</span>
+          <button
+            onClick={() => setTimeLeft(turnDuration)}
+            style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem',
+              background: 'none', border: '1px solid var(--color-border)',
+              borderRadius: 3, cursor: 'pointer', color: 'var(--color-muted)' }}
+          >↺</button>
+        </div>
       )}
 
       <div className="combat-list">

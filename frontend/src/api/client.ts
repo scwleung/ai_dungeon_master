@@ -1,4 +1,4 @@
-import type { Campaign, Character, CharacterUpdate, MapData, NPC, Quest, Session } from '../types'
+import type { Campaign, Character, CharacterUpdate, MapAnnotation, MapData, NPC, Quest, Session } from '../types'
 
 const BASE = ''
 
@@ -130,6 +130,10 @@ export const api = {
     /** Force-regenerate the dungeon map (requires access code). */
     generate: (campaignId: string) =>
       request<{ campaign_id: string; map_data: MapData }>('POST', `/api/campaigns/${campaignId}/map/generate`),
+    getAnnotations: (campaignId: string) =>
+      request<{ campaign_id: string; annotations: MapAnnotation[] }>('GET', `/api/campaigns/${campaignId}/map/annotations`),
+    updateAnnotations: (campaignId: string, annotations: MapAnnotation[]) =>
+      request<{ campaign_id: string; annotations: MapAnnotation[] }>('PUT', `/api/campaigns/${campaignId}/map/annotations`, { annotations }),
   },
 
   /** NPC registry operations. */

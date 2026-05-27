@@ -184,6 +184,13 @@ export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: bo
           >
             {endCombatLoading ? '...' : 'End Combat'}
           </button>
+          <button
+            className="btn-ghost btn-sm"
+            onClick={async () => {
+              if (!sessionId) return
+              try { await api.combat.rollInitiative(sessionId) } catch (e) { console.error(e) }
+            }}
+          >🎲 Roll Initiative</button>
         </div>
       )}
 

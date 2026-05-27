@@ -8,6 +8,7 @@ import type {
   Combatant,
   DiceLogEntry,
   GameSettings,
+  Handout,
   MapAnnotation,
   MapData,
   NarrativeMessage,
@@ -16,7 +17,9 @@ import type {
   RulesetName,
   Session,
   ThemeName,
+  TimelineEntry,
   TTSProvider,
+  WorldTime,
 } from '../types'
 
 function generateId(): string {
@@ -52,6 +55,7 @@ function loadSettings(): GameSettings {
         theme: (parsed.theme as ThemeName) ?? 'fantasy',
         playerId: parsed.playerId ?? generateId(),
         playerName: parsed.playerName ?? 'Adventurer',
+        muteSFX: parsed.muteSFX ?? false,
       }
     }
   } catch {
@@ -63,6 +67,7 @@ function loadSettings(): GameSettings {
     theme: 'fantasy',
     playerId: generateId(),
     playerName: 'Adventurer',
+    muteSFX: false,
   }
 }
 
@@ -303,6 +308,25 @@ export interface GameStore {
   // Dice macros
   diceMacros: Array<{ id: string; name: string; notation: string }>
   setDiceMacros: (macros: Array<{ id: string; name: string; notation: string }>) => void
+
+  // World time
+  worldTime: WorldTime | null
+  setWorldTime: (t: WorldTime) => void
+  loadWorldTime: (campaignId: string) => Promise<void>
+  saveWorldTime: (campaignId: string, data: Partial<WorldTime>) => Promise<void>
+
+  // Handouts
+  handouts: Handout[]
+  activeHandout: Handout | null
+  setHandouts: (h: Handout[]) => void
+  addHandout: (h: Handout) => void
+  setActiveHandout: (h: Handout | null) => void
+  loadHandouts: (campaignId: string) => Promise<void>
+
+  // Timeline
+  timeline: TimelineEntry[]
+  setTimeline: (t: TimelineEntry[]) => void
+  loadTimeline: (campaignId: string) => Promise<void>
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -575,5 +599,48 @@ export const useGameStore = create<GameStore>((set, get) => ({
     try {
       localStorage.setItem('dm_dice_macros', JSON.stringify(macros))
     } catch { /* ignore */ }
+  },
+
+  // World time
+  worldTime: null,
+  setWorldTime: (t) => set({ worldTime: t }),
+  loadWorldTime: async (campaignId) => {
+    try {
+      const res = await api.campaigns.getWorldTime(campaignId)
+      set({ worldTime: res.world_time })
+    } catch {
+      // ignore — world time may not exist yet
+    }
+  },
+  saveWorldTime: async (campaignId, data) => {
+    const res = await api.campaigns.updateWorldTime(campaignId, data)
+    set({ worldTime: res.world_time })
+  },
+
+  // Handouts
+  handouts: [],
+  activeHandout: null,
+  setHandouts: (h) => set({ handouts: h }),
+  addHandout: (h) => set((state) => ({ handouts: [...state.handouts, h] })),
+  setActiveHandout: (h) => set({ activeHandout: h }),
+  loadHandouts: async (campaignId) => {
+    try {
+      const res = await api.campaigns.getHandouts(campaignId)
+      set({ handouts: res.handouts })
+    } catch {
+      // ignore — handouts may not exist yet
+    }
+  },
+
+  // Timeline
+  timeline: [],
+  setTimeline: (t) => set({ timeline: t }),
+  loadTimeline: async (campaignId) => {
+    try {
+      const res = await api.campaigns.getTimeline(campaignId)
+      set({ timeline: res.timeline })
+    } catch {
+      // ignore — timeline may not exist yet
+    }
   },
 }))

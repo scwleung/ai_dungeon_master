@@ -17,6 +17,9 @@ import { SessionNotes } from './SessionNotes'
 import EncounterBuilder from './EncounterBuilder'
 import DiceMacros from './DiceMacros'
 import AmbientSound from './AmbientSound'
+import WorldClock from './WorldClock'
+import Handouts from './Handouts'
+import Bestiary from './Bestiary'
 
 /**
  * Root layout for an active play session.
@@ -72,6 +75,13 @@ export function SessionView() {
     currentAmbient,
     setCurrentAmbient,
     recordingPlayers,
+    worldTime,
+    loadWorldTime,
+    saveWorldTime,
+    handouts,
+    loadHandouts,
+    activeHandout,
+    setActiveHandout,
   } = useGameStore()
 
   const isDM = !!(activeCampaign && campaignTokens[activeCampaign.id])
@@ -89,6 +99,9 @@ export function SessionView() {
   const [showEncounterBuilder, setShowEncounterBuilder] = useState(false)
   const [showDiceMacros, setShowDiceMacros] = useState(false)
   const [showAmbientPanel, setShowAmbientPanel] = useState(false)
+  const [showWorldClock, setShowWorldClock] = useState(false)
+  const [showHandouts, setShowHandouts] = useState(false)
+  const [showBestiary, setShowBestiary] = useState(false)
   const [showAddPin, setShowAddPin] = useState(false)
   const [pinInput, setPinInput] = useState('')
   const [endingSession, setEndingSession] = useState(false)
@@ -134,8 +147,10 @@ export function SessionView() {
     if (activeCampaign) {
       loadPartyState(activeCampaign.id).catch(() => {})
       loadMapAnnotations(activeCampaign.id).catch(() => {})
+      loadWorldTime(activeCampaign.id)
+      loadHandouts(activeCampaign.id)
     }
-  }, [activeCampaign, loadPartyState, loadMapAnnotations])
+  }, [activeCampaign, loadPartyState, loadMapAnnotations, loadWorldTime, loadHandouts])
 
   function handleRemovePin(id: string) {
     if (!activeSession) return
@@ -316,6 +331,24 @@ export function SessionView() {
           {isDM && !isSpectator && (
             <button
               className="btn-ghost btn-sm"
+              onClick={() => setShowWorldClock(true)}
+            >⏰ Time</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowHandouts(true)}
+            >📜 Handouts</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowBestiary(true)}
+            >📖 Bestiary</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm"
               onClick={() => setShowEncounterBuilder(v => !v)}
               title="Open encounter builder"
             >
@@ -473,6 +506,15 @@ export function SessionView() {
                 </form>
               </div>
             ) : null
+          )}
+          {/* World clock status bar */}
+          {worldTime && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', padding: '0.1rem 0.75rem', display: 'flex', gap: '1rem', borderBottom: '1px solid var(--color-border)' }}>
+              <span>⏰ Day {worldTime.day}</span>
+              <span>{worldTime.time_of_day}</span>
+              <span>{String(worldTime.hour).padStart(2,'0')}:{String(worldTime.minute).padStart(2,'0')}</span>
+              <span>{worldTime.weather}</span>
+            </div>
           )}
           {/* Ambient badge */}
           {currentAmbient !== 'none' && (
@@ -638,6 +680,44 @@ export function SessionView() {
           />
         </div>
       )}
+
+      {/* Active handout overlay */}
+      {activeHandout && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--color-surface)', border: '2px solid var(--color-accent)', borderRadius: 8, padding: '1.5rem', maxWidth: 480, width: '90%', maxHeight: '70vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <strong style={{ fontSize: '1.1rem' }}>📜 {activeHandout.title}</strong>
+              <button onClick={() => setActiveHandout(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', fontSize: '1.2rem' }}>✕</button>
+            </div>
+            {activeHandout.type === 'image'
+              ? <img src={activeHandout.content} alt={activeHandout.title} style={{ maxWidth: '100%', borderRadius: 4 }} />
+              : <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{activeHandout.content}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* World Clock panel */}
+      {showWorldClock && worldTime && (
+        <WorldClock
+          worldTime={worldTime}
+          isDM={!isSpectator}
+          onUpdate={(data) => { if (activeCampaign) saveWorldTime(activeCampaign.id, data) }}
+          onClose={() => setShowWorldClock(false)}
+        />
+      )}
+
+      {/* Handouts panel */}
+      {showHandouts && activeCampaign && (
+        <Handouts
+          campaignId={activeCampaign.id}
+          handouts={handouts}
+          isDM={!isSpectator}
+          onClose={() => setShowHandouts(false)}
+        />
+      )}
+
+      {/* Bestiary panel */}
+      {showBestiary && <Bestiary onClose={() => setShowBestiary(false)} />}
 
       {/* DM Voice (hidden, auto-plays) */}
       <DMVoice />

@@ -1,4 +1,4 @@
-import type { Campaign, Character, CharacterUpdate, MapAnnotation, MapData, NPC, Quest, Session } from '../types'
+import type { Campaign, Character, CharacterUpdate, Handout, MapAnnotation, MapData, NPC, Quest, Session, TimelineEntry, WorldTime } from '../types'
 
 const BASE = ''
 
@@ -82,6 +82,24 @@ export const api = {
     import: (payload: unknown) => request<{ id: string; name: string; ruleset: string; description: string; access_code: string; created_at: string }>('POST', '/api/campaigns/import', payload),
     /** Generate a new access code for the campaign (requires access code). */
     rotateAccessCode: (id: string) => request<{ campaign_id: string; access_code: string }>('POST', `/api/campaigns/${id}/rotate-access-code`),
+    getWorldTime: (id: string) =>
+      request<{ campaign_id: string; world_time: WorldTime }>('GET', `/api/campaigns/${id}/world-time`),
+    updateWorldTime: (id: string, data: Partial<WorldTime>) =>
+      request<{ campaign_id: string; world_time: WorldTime }>('PUT', `/api/campaigns/${id}/world-time`, data),
+    getHandouts: (id: string) =>
+      request<{ campaign_id: string; handouts: Handout[] }>('GET', `/api/campaigns/${id}/handouts`),
+    createHandout: (id: string, data: { title: string; content: string; type?: string }) =>
+      request<{ campaign_id: string; handout: Handout }>('POST', `/api/campaigns/${id}/handouts`, data),
+    deleteHandout: (campaignId: string, handoutId: string) =>
+      request<void>('DELETE', `/api/campaigns/${campaignId}/handouts/${handoutId}`),
+    getTimeline: (id: string) =>
+      request<{ campaign_id: string; timeline: TimelineEntry[] }>('GET', `/api/campaigns/${id}/timeline`),
+    addTimelineEntry: (id: string, data: { description: string; session_tag?: string }) =>
+      request<{ campaign_id: string; entry: TimelineEntry }>('POST', `/api/campaigns/${id}/timeline`, data),
+    deleteTimelineEntry: (campaignId: string, entryId: string) =>
+      request<void>('DELETE', `/api/campaigns/${campaignId}/timeline/${entryId}`),
+    generateLoot: (id: string, data: { cr: number; environment: string; count?: number }) =>
+      request<{ campaign_id: string; items: string[] }>('POST', `/api/campaigns/${id}/loot`, data),
   },
 
   /** Session lifecycle operations scoped to a campaign. */
@@ -186,6 +204,8 @@ export const api = {
     /** Remove a combatant from the active encounter by name. */
     removeCombatant: (sessionId: string, name: string) =>
       request<void>('DELETE', `/api/sessions/${sessionId}/combat/combatants/${encodeURIComponent(name)}`),
+    rollInitiative: (sessionId: string) =>
+      request<void>('POST', `/api/sessions/${sessionId}/combat/roll-initiative`),
   },
 
   /** Text-to-speech operations. */

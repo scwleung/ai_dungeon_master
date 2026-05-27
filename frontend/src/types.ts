@@ -127,6 +127,8 @@ export interface GameSettings {
   playerId: string
   /** Human-readable display name shown to other players in the session. */
   playerName: string
+  /** When true, dice-roll sound effects are suppressed. */
+  muteSFX: boolean
 }
 
 // WebSocket message types — Client → Server
@@ -347,6 +349,33 @@ export interface MapRoom {
   h: number
 }
 
+/** In-game world clock and weather state. */
+export interface WorldTime {
+  day: number
+  hour: number
+  minute: number
+  weather: string
+  temperature: string
+  time_of_day: string
+}
+
+/** A document or image the DM has pushed to all players. */
+export interface Handout {
+  id: string
+  title: string
+  content: string
+  type: 'text' | 'image'
+  created_at: string
+}
+
+/** A chronological event entry in the campaign history. */
+export interface TimelineEntry {
+  id: string
+  description: string
+  session_tag: string
+  created_at: string
+}
+
 /** A player-placed pin on the dungeon map. */
 export interface MapAnnotation {
   id: string
@@ -497,6 +526,18 @@ export interface WsMapAnnotationUpdate {
   annotations: MapAnnotation[]
 }
 
+/** Server push when world time/weather changes. */
+export interface WsTimeUpdate {
+  type: 'time_update'
+  world_time: WorldTime
+}
+
+/** Server push delivering a new DM handout to all clients. */
+export interface WsHandoutPush {
+  type: 'handout_push'
+  handout: Handout
+}
+
 /** Union of all messages the server may push to the client over the WebSocket. */
 export type WsServerMessage =
   | WsDmChunk
@@ -520,5 +561,7 @@ export type WsServerMessage =
   | WsVoiceRecording
   | WsAmbientUpdate
   | WsMapAnnotationUpdate
+  | WsTimeUpdate
+  | WsHandoutPush
 
 export type AmbientSound = 'tavern' | 'dungeon' | 'battle' | 'forest' | 'rain' | 'none'

@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import type { Character } from '../types'
+import LevelUpWizard from './LevelUpWizard'
 
 interface Props {
   character: Character
   onUpdate: (id: string, updates: Partial<Character>) => void
   onSendAction?: (text: string) => void
+}
+
+const XP_TO_NEXT: Record<number, number> = {
+  1: 300, 2: 900, 3: 2700, 4: 6500, 5: 14000, 6: 23000, 7: 34000,
+  8: 48000, 9: 64000, 10: 85000, 11: 100000, 12: 120000, 13: 140000,
+  14: 165000, 15: 195000, 16: 225000, 17: 265000, 18: 305000, 19: 355000,
 }
 
 // D&D 5e XP thresholds for levels 1–20 (index = level - 1)
@@ -74,6 +81,7 @@ export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesDraft, setNotesDraft] = useState(character.notes)
   const [levelUpAlert, setLevelUpAlert] = useState(false)
+  const [showLevelUp, setShowLevelUp] = useState(false)
   const prevXpRef = useRef(character.xp ?? 0)
 
   // Detect level-up when XP changes
@@ -333,9 +341,24 @@ export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
                 style={{ width: `${Math.max(0, Math.min(100, xpProgress))}%` }}
               />
             </div>
-            <div className="cs-xp-sublabel">
+            <div className="cs-xp-sublabel" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               Level {xpLevel}{xpForNextLevel !== null ? ` → ${xpLevel + 1}` : ' (Max)'}
+              {character.xp !== undefined && character.level < 20 &&
+                XP_TO_NEXT[character.level] !== undefined &&
+                character.xp >= XP_TO_NEXT[character.level] && (
+                <button
+                  onClick={() => setShowLevelUp(true)}
+                  style={{ padding: '0.2rem 0.6rem', background: 'var(--color-accent)', color: 'var(--color-bg)', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold', marginLeft: '0.5rem' }}
+                >⬆ Level Up!</button>
+              )}
             </div>
+            {showLevelUp && (
+              <LevelUpWizard
+                character={character}
+                onConfirm={(updates) => { onUpdate?.(character.id, updates); setShowLevelUp(false) }}
+                onClose={() => setShowLevelUp(false)}
+              />
+            )}
           </div>
         )}
       </div>

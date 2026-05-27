@@ -3,6 +3,7 @@ import { useGameStore } from '../store/gameStore'
 import { api } from '../api/client'
 import { CharacterForm } from './CharacterForm'
 import { SessionJournal } from './SessionJournal'
+import Timeline from './Timeline'
 import type { Character, Session } from '../types'
 
 const RULESET_LABELS: Record<string, string> = {
@@ -151,6 +152,7 @@ export function CampaignDetail() {
   const [copiedInvite, setCopiedInvite] = useState(false)
   const [rotateFlash, setRotateFlash] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [showTimeline, setShowTimeline] = useState(false)
 
   useEffect(() => {
     if (activeCampaign) {
@@ -260,6 +262,12 @@ export function CampaignDetail() {
             </div>
           </div>
           <div className="campaign-header-actions">
+            {isDM && (
+              <button
+                className="btn-ghost btn-sm"
+                onClick={() => setShowTimeline(true)}
+              >📅 Timeline</button>
+            )}
             {isDM && (
               <button
                 className="btn-ghost btn-sm"
@@ -398,6 +406,14 @@ export function CampaignDetail() {
           campaignId={activeCampaign.id}
           onClose={() => setShowCharForm(false)}
           onCreated={handleCharCreated}
+        />
+      )}
+
+      {showTimeline && activeCampaign && (
+        <Timeline
+          campaignId={activeCampaign.id}
+          accessCode={campaignTokens[activeCampaign.id] ?? ''}
+          onClose={() => setShowTimeline(false)}
         />
       )}
 

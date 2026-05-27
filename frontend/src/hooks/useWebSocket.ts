@@ -32,6 +32,9 @@ export function useWebSocket(sessionId: string | null) {
   const storeRef = useRef(store)
   storeRef.current = store
 
+  // Track whether we know this connection is spectator-mode (set after joined msg)
+  const isSpectatorRef = useRef(store.isSpectator)
+
   const clearReconnect = () => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
@@ -43,12 +46,15 @@ export function useWebSocket(sessionId: string | null) {
     if (!sessionId) return
     if (unmountedRef.current) return
 
-    const { settings } = storeRef.current
+    const { settings, isSpectator } = storeRef.current
+    isSpectatorRef.current = isSpectator
     const params = new URLSearchParams({
       player_id: settings.playerId,
       player_name: settings.playerName,
-      access_code: getAccessCode(),
     })
+    if (!isSpectator) {
+      params.set('access_code', getAccessCode())
+    }
 
     // Use relative path so vite proxy handles it
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -168,6 +174,17 @@ export function useWebSocket(sessionId: string | null) {
               timestamp: new Date().toISOString(),
             })
           }
+          s.addDiceLogEntry({
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            roller: msg.roller ?? 'Unknown',
+            dice: msg.dice ?? '?',
+            values: msg.values ?? [],
+            modifier: msg.modifier ?? 0,
+            total: msg.total ?? 0,
+            secret: msg.secret,
+            skill: msg.skill,
+          })
           s.setPendingRoll(null)
           break
         }
@@ -232,6 +249,13 @@ export function useWebSocket(sessionId: string | null) {
             text: msg.text,
             timestamp: new Date().toISOString(),
           })
+          break
+        }
+
+        case 'joined': {
+          if (msg.is_spectator) {
+            s.setIsSpectator(true)
+          }
           break
         }
 

@@ -6,11 +6,13 @@ import { PlayerInput } from './PlayerInput'
 import { CharacterSheet } from './CharacterSheet'
 import { CombatTracker } from './CombatTracker'
 import { DiceCamera } from './DiceCamera'
+import { DiceLog } from './DiceLog'
 import { DiceRoller } from './DiceRoller'
 import { DMVoice } from './DMVoice'
 import { DungeonMap } from './DungeonMap'
 import { NPCTracker } from './NPCTracker'
 import { QuestTracker } from './QuestTracker'
+import { SessionNotes } from './SessionNotes'
 
 /**
  * Root layout for an active play session.
@@ -52,8 +54,10 @@ export function SessionView() {
     setSceneImage,
     updateCharacter,
     loadQuests,
+    loadSessionNotes,
     endSession,
     setView,
+    isSpectator,
   } = useGameStore()
 
   const isDM = !!(activeCampaign && campaignTokens[activeCampaign.id])
@@ -65,9 +69,12 @@ export function SessionView() {
   const [showCombatPanel, setShowCombatPanel] = useState(false)
   const [showNpcPanel, setShowNpcPanel] = useState(false)
   const [showQuestPanel, setShowQuestPanel] = useState(false)
+  const [showDiceLogPanel, setShowDiceLogPanel] = useState(false)
+  const [showNotesPanel, setShowNotesPanel] = useState(false)
   const [endingSession, setEndingSession] = useState(false)
   const [endError, setEndError] = useState<string | null>(null)
   const [copiedInvite, setCopiedInvite] = useState(false)
+  const [copiedSpectator, setCopiedSpectator] = useState(false)
 
   const { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll } =
     useWebSocket(activeSession?.id ?? null)
@@ -94,6 +101,13 @@ export function SessionView() {
     }
   }, [activeCampaign, loadQuests])
 
+  // Load session notes when the session starts
+  useEffect(() => {
+    if (activeSession?.id) {
+      loadSessionNotes(activeSession.id).catch(() => {})
+    }
+  }, [activeSession?.id, loadSessionNotes])
+
   // Find current player's character
   const myCharacter = characters.find(
     (c) => c.player_name === settings.playerName
@@ -109,6 +123,25 @@ export function SessionView() {
       setEndError(err instanceof Error ? err.message : 'Failed to end session.')
       setEndingSession(false)
     }
+  }
+
+  async function handleCopySpectatorLink() {
+    if (!activeSession) return
+    const url = `${window.location.origin}${window.location.pathname}?spectate=${activeSession.id}`
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      const el = document.createElement('textarea')
+      el.value = url
+      el.style.position = 'fixed'
+      el.style.opacity = '0'
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+    }
+    setCopiedSpectator(true)
+    setTimeout(() => setCopiedSpectator(false), 1500)
   }
 
   async function handleCopyInvite() {
@@ -152,7 +185,8 @@ export function SessionView() {
             <span className="conn-dot" />
             {connected ? 'Connected' : 'Reconnecting...'}
           </div>
-          {isDM && <span className="dm-badge">DM</span>}
+          {isDM && !isSpectator && <span className="dm-badge">DM</span>}
+          {isSpectator && <span className="spectator-badge">Spectator</span>}
         </div>
 
         {/* Active Players */}
@@ -176,6 +210,20 @@ export function SessionView() {
             title={showDiceRoller ? 'Hide dice roller' : 'Show dice roller'}
           >
             🎲 Dice
+          </button>
+          <button
+            className={`dice-log-toggle-btn btn-ghost btn-sm ${showDiceLogPanel ? 'active' : ''}`}
+            onClick={() => setShowDiceLogPanel((v) => !v)}
+            title={showDiceLogPanel ? 'Hide dice log' : 'Show dice log'}
+          >
+            🎲 Log
+          </button>
+          <button
+            className={`notes-toggle-btn btn-ghost btn-sm ${showNotesPanel ? 'active' : ''}`}
+            onClick={() => setShowNotesPanel((v) => !v)}
+            title={showNotesPanel ? 'Hide session notes' : 'Show session notes'}
+          >
+            📝 Notes
           </button>
           <button
             className={`map-toggle-btn btn-ghost btn-sm ${showMapPanel ? 'active' : ''}`}
@@ -214,13 +262,22 @@ export function SessionView() {
               ☰ Sheet
             </button>
           )}
-          {isDM && (
+          {isDM && !isSpectator && (
             <button
               className="btn-ghost btn-sm invite-btn"
               onClick={handleCopyInvite}
               title="Copy invite link"
             >
               {copiedInvite ? 'Copied!' : '🔗 Invite'}
+            </button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm spectator-link-btn"
+              onClick={handleCopySpectatorLink}
+              title="Copy spectator link (no access code required)"
+            >
+              {copiedSpectator ? 'Copied!' : '👁 Spectator Link'}
             </button>
           )}
           <button
@@ -262,14 +319,30 @@ export function SessionView() {
             </div>
           )}
           <NarrativeLog />
-          <PlayerInput
-            onSendAction={sendAction}
-            onSendVoiceTranscript={sendVoiceTranscript}
-            onOpenDiceCamera={() => setShowDiceCamera(true)}
-            onOpenDiceRoller={() => setShowDiceRoller(true)}
-            connected={connected}
-          />
+          {!isSpectator && (
+            <PlayerInput
+              onSendAction={sendAction}
+              onSendVoiceTranscript={sendVoiceTranscript}
+              onOpenDiceCamera={() => setShowDiceCamera(true)}
+              onOpenDiceRoller={() => setShowDiceRoller(true)}
+              connected={connected}
+            />
+          )}
         </div>
+
+        {/* Right Panel: Dice Log */}
+        {showDiceLogPanel && (
+          <div className="dice-log-outer-panel">
+            <DiceLog onClose={() => setShowDiceLogPanel(false)} />
+          </div>
+        )}
+
+        {/* Right Panel: Session Notes */}
+        {showNotesPanel && (
+          <div className="notes-outer-panel">
+            <SessionNotes onClose={() => setShowNotesPanel(false)} />
+          </div>
+        )}
 
         {/* Right Panel: Dice Roller */}
         {showDiceRoller && (
@@ -453,9 +526,44 @@ export function SessionView() {
         .combat-toggle-btn.active,
         .npc-toggle-btn.active,
         .quest-toggle-btn.active,
-        .dice-toggle-btn.active {
+        .dice-toggle-btn.active,
+        .dice-log-toggle-btn.active,
+        .notes-toggle-btn.active {
           border-color: var(--accent);
           color: var(--accent);
+        }
+
+        .spectator-badge {
+          font-size: var(--font-size-xs);
+          font-weight: 700;
+          color: var(--text-muted);
+          background: rgba(128, 128, 128, 0.15);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-full);
+          padding: 1px 6px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          flex-shrink: 0;
+        }
+
+        .dice-log-outer-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        .notes-outer-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
         }
 
         .combat-active-indicator {
@@ -594,7 +702,9 @@ export function SessionView() {
           .map-panel,
           .combat-panel,
           .npc-panel,
-          .quest-panel {
+          .quest-panel,
+          .dice-log-outer-panel,
+          .notes-outer-panel {
             position: fixed;
             top: var(--header-height);
             right: 0;

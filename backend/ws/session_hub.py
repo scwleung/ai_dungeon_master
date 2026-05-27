@@ -28,6 +28,8 @@ class SessionHub:
         self._rooms: dict[str, set[WebSocket]] = {}
         # ws -> (session_id, player_id)
         self._player_sockets: dict[WebSocket, tuple[str, str]] = {}
+        # spectator-only connections
+        self._spectators: set[WebSocket] = set()
 
     # ------------------------------------------------------------------
     # Connection management
@@ -51,6 +53,14 @@ class SessionHub:
         self._rooms[session_id].add(ws)
         self._player_sockets[ws] = (session_id, player_id)
 
+    def mark_spectator(self, ws: WebSocket) -> None:
+        """Mark a connected WebSocket as a spectator (read-only)."""
+        self._spectators.add(ws)
+
+    def is_spectator(self, ws: WebSocket) -> bool:
+        """Return True if the given WebSocket is a spectator connection."""
+        return ws in self._spectators
+
     def disconnect(self, ws: WebSocket) -> Optional[tuple[str, str]]:
         """
         Remove a WebSocket from its session room.
@@ -71,6 +81,8 @@ class SessionHub:
             room.discard(ws)
             if not room:
                 del self._rooms[session_id]
+
+        self._spectators.discard(ws)
 
         return session_id, player_id
 

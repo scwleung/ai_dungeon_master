@@ -5,6 +5,7 @@ import type {
   Campaign,
   Character,
   Combatant,
+  DiceLogEntry,
   GameSettings,
   MapData,
   NarrativeMessage,
@@ -243,6 +244,33 @@ export interface GameStore {
   sceneImage: { url: string; description: string } | null
   /** Set or clear the scene image. */
   setSceneImage: (img: { url: string; description: string } | null) => void
+
+  // Dice log
+
+  /** Ordered list of dice roll log entries, newest first (max 100). */
+  diceLog: DiceLogEntry[]
+  /** Prepend a new entry to the dice log; keeps last 100 entries. */
+  addDiceLogEntry: (entry: DiceLogEntry) => void
+
+  // Session notes
+
+  /** Collaborative session notes text. */
+  sessionNotes: string
+  /** Set notes in store without persisting. */
+  setSessionNotes: (notes: string) => void
+  /** Fetch notes from the server and update the store. */
+  loadSessionNotes: (sessionId: string) => Promise<void>
+  /** Persist updated notes to the server. */
+  saveSessionNotes: (sessionId: string, notes: string) => Promise<void>
+
+  // Spectator mode
+
+  /** Whether the current connection is a read-only spectator. */
+  isSpectator: boolean
+  /** Set the spectator flag. */
+  setIsSpectator: (val: boolean) => void
+  /** Join as a spectator for a session (no access code required). */
+  joinAsSpectator: (sessionId: string) => Promise<void>
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -407,4 +435,31 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // Scene illustration
   sceneImage: null,
   setSceneImage: (img) => set({ sceneImage: img }),
+
+  // Dice log
+  diceLog: [],
+  addDiceLogEntry: (entry) =>
+    set((state) => ({ diceLog: [entry, ...state.diceLog].slice(0, 100) })),
+
+  // Session notes
+  sessionNotes: '',
+  setSessionNotes: (notes) => set({ sessionNotes: notes }),
+  loadSessionNotes: async (sessionId) => {
+    const res = await api.sessions.getNotes(sessionId)
+    set({ sessionNotes: res.notes ?? '' })
+  },
+  saveSessionNotes: async (sessionId, notes) => {
+    await api.sessions.updateNotes(sessionId, notes)
+  },
+
+  // Spectator mode
+  isSpectator: false,
+  setIsSpectator: (val) => set({ isSpectator: val }),
+  joinAsSpectator: async (sessionId) => {
+    set({
+      isSpectator: true,
+      activeSession: { id: sessionId, campaign_id: '', started_at: '', messages: [] },
+      view: 'session',
+    })
+  },
 }))

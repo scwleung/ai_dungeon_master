@@ -289,6 +289,89 @@ export function CharacterSheet({ character, onUpdate }: Props) {
           </form>
         </Section>
 
+        {/* Spell Slots */}
+        {character.spell_slots && Object.keys(character.spell_slots).length > 0 && (
+          <Section title="Spell Slots" defaultOpen={true}>
+            <div className="pips-section">
+              {Object.keys(character.spell_slots)
+                .sort((a, b) => Number(a) - Number(b))
+                .map((level) => {
+                  const slot = character.spell_slots![level]
+                  return (
+                    <div key={level} className="pip-row">
+                      <span className="pip-label">Level {level}</span>
+                      <div className="pip-track">
+                        {Array.from({ length: slot.max }).map((_, i) => {
+                          const filled = i < slot.max - slot.used
+                          return (
+                            <button
+                              key={i}
+                              className={`pip ${filled ? 'pip-filled' : 'pip-empty'}`}
+                              title={filled ? 'Click to spend slot' : 'Click to recover slot'}
+                              onClick={() => {
+                                const newUsed = filled
+                                  ? Math.min(slot.max, slot.used + 1)
+                                  : Math.max(0, slot.used - 1)
+                                update({
+                                  spell_slots: {
+                                    ...character.spell_slots,
+                                    [level]: { ...slot, used: newUsed },
+                                  },
+                                })
+                              }}
+                            />
+                          )
+                        })}
+                      </div>
+                      <span className="pip-count">
+                        {slot.max - slot.used}/{slot.max}
+                      </span>
+                    </div>
+                  )
+                })}
+            </div>
+          </Section>
+        )}
+
+        {/* Resources */}
+        {character.resources && Object.keys(character.resources).length > 0 && (
+          <Section title="Resources" defaultOpen={true}>
+            <div className="pips-section">
+              {Object.entries(character.resources).map(([key, res]) => (
+                <div key={key} className="pip-row">
+                  <span className="pip-label">{res.label}</span>
+                  <div className="pip-track">
+                    {Array.from({ length: res.max }).map((_, i) => {
+                      const filled = i < res.max - res.used
+                      return (
+                        <button
+                          key={i}
+                          className={`pip ${filled ? 'pip-filled' : 'pip-empty'}`}
+                          title={filled ? 'Click to spend' : 'Click to recover'}
+                          onClick={() => {
+                            const newUsed = filled
+                              ? Math.min(res.max, res.used + 1)
+                              : Math.max(0, res.used - 1)
+                            update({
+                              resources: {
+                                ...character.resources,
+                                [key]: { ...res, used: newUsed },
+                              },
+                            })
+                          }}
+                        />
+                      )
+                    })}
+                  </div>
+                  <span className="pip-count">
+                    {res.max - res.used}/{res.max}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
         {/* Notes */}
         <Section title="Notes" defaultOpen={false}>
           {editingNotes ? (
@@ -670,6 +753,65 @@ export function CharacterSheet({ character, onUpdate }: Props) {
           justify-content: flex-end;
           gap: var(--space-2);
           margin-top: var(--space-2);
+        }
+
+        .pips-section {
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-2);
+        }
+
+        .pip-row {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+        }
+
+        .pip-label {
+          font-size: var(--font-size-xs);
+          color: var(--text-secondary);
+          min-width: 56px;
+          flex-shrink: 0;
+        }
+
+        .pip-track {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+          flex: 1;
+        }
+
+        .pip {
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          border: 1px solid var(--border);
+          cursor: pointer;
+          padding: 0;
+          min-width: unset;
+          transition: background var(--transition), border-color var(--transition);
+        }
+
+        .pip-filled {
+          background: var(--accent);
+          border-color: var(--accent);
+        }
+
+        .pip-empty {
+          background: var(--bg-primary);
+          border-color: var(--border);
+        }
+
+        .pip:hover {
+          border-color: var(--accent);
+        }
+
+        .pip-count {
+          font-size: var(--font-size-xs);
+          color: var(--text-muted);
+          font-family: var(--font-mono);
+          min-width: 28px;
+          text-align: right;
         }
       `}</style>
     </div>

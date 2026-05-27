@@ -81,6 +81,10 @@ export interface Character {
   conditions: string[]
   /** Free-form notes about backstory, personality, or special abilities. */
   notes: string
+  /** Per-level spell slot state; keys are slot levels '1'–'9'. */
+  spell_slots?: Record<string, { max: number; used: number }>
+  /** Class resource state (Ki, Rage, Superiority Dice, etc.). */
+  resources?: Record<string, { label: string; max: number; used: number }>
 }
 
 /** Shape required to create a new character (id and campaign_id are assigned by the server). */
@@ -223,6 +227,34 @@ export interface WsDiceResult {
   dice: string
   /** When `true` the result should not be shown publicly in the narrative log. */
   secret?: boolean
+  /** Modifier applied to the roll. */
+  modifier?: number
+  /** Display name of whoever rolled. */
+  roller?: string
+  /** Skill or ability check that triggered this roll. */
+  skill?: string
+}
+
+/** A single entry in the dice roll log. */
+export interface DiceLogEntry {
+  /** Unique identifier for this log entry. */
+  id: string
+  /** ISO 8601 timestamp when the roll occurred. */
+  timestamp: string
+  /** Display name of whoever rolled — "DM" or a player name. */
+  roller: string
+  /** Dice notation string, e.g. `"1d20"`. */
+  dice: string
+  /** Individual die face values. */
+  values: number[]
+  /** Modifier applied to the roll total. */
+  modifier: number
+  /** Final total (sum of values + modifier). */
+  total: number
+  /** When true the roll was secret (DM-only). */
+  secret?: boolean
+  /** Skill or ability check name if this fulfilled a pending roll request. */
+  skill?: string
 }
 
 /** Server-initiated prompt asking the player to roll specific dice. */
@@ -277,6 +309,19 @@ export interface WsSystem {
   type: 'system'
   /** The system message text to display in the narrative log. */
   text: string
+}
+
+/** Server confirmation that the client has joined a session. */
+export interface WsJoined {
+  type: 'joined'
+  /** The session ID the client joined. */
+  session_id: string
+  /** The player's unique session identifier. */
+  player_id: string
+  /** The player's display name. */
+  player_name: string
+  /** Whether this connection is in spectator (read-only) mode. */
+  is_spectator?: boolean
 }
 
 /** A single room in the procedurally generated dungeon map. */
@@ -419,6 +464,7 @@ export type WsServerMessage =
   | WsPlayerLeft
   | WsError
   | WsSystem
+  | WsJoined
   | WsMapUpdate
   | WsCombatUpdate
   | WsNpcUpdate

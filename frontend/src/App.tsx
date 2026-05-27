@@ -11,7 +11,7 @@ import './themes/hud.css'
 import './themes/minimal.css'
 
 export default function App() {
-  const { view, settings, loadCampaigns, storeCampaignToken, setActiveCampaign, setView } = useGameStore()
+  const { view, settings, loadCampaigns, storeCampaignToken, setActiveCampaign, setView, joinAsSpectator } = useGameStore()
 
   // Apply the saved theme on mount and whenever settings.theme changes
   useEffect(() => {
@@ -29,6 +29,12 @@ export default function App() {
   // Handle invite URL params on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    const spectateId = params.get('spectate')
+    if (spectateId) {
+      joinAsSpectator(spectateId).catch(() => {})
+      window.history.replaceState({}, '', window.location.pathname)
+      return
+    }
     const campaignId = params.get('campaign')
     const code = params.get('code')
     if (campaignId && code) {

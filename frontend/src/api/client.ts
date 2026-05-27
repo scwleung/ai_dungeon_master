@@ -89,6 +89,16 @@ export const api = {
     /** Mark a session as ended and return the updated record. */
     end: (sessionId: string) =>
       request<{ data: Session }>('PUT', `/api/campaigns/sessions/${sessionId}/end`),
+    /** Fetch the collaborative notes for a session. */
+    getNotes: (sessionId: string) =>
+      fetch(`/api/campaigns/sessions/${sessionId}/notes`).then((r) => r.json()) as Promise<{ session_id: string; notes: string }>,
+    /** Persist updated collaborative notes for a session. */
+    updateNotes: (sessionId: string, notes: string) =>
+      fetch(`/api/campaigns/sessions/${sessionId}/notes`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes }),
+      }).then((r) => r.json()) as Promise<{ session_id: string; notes: string }>,
   },
 
   /** Character CRUD operations scoped to a campaign. */

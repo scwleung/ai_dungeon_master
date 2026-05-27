@@ -152,11 +152,11 @@ async def update_character(
     update_data = payload.model_dump(exclude_unset=True)
 
     for field_name, value in update_data.items():
-        if field_name in ("stats", "inventory", "conditions") and not isinstance(
+        if field_name in ("stats", "inventory", "conditions", "spell_slots", "resources") and not isinstance(
             value, str
         ):
             # Serialize Python objects back to JSON strings for storage
-            setattr(char, field_name, json.dumps(value))
+            setattr(char, field_name, json.dumps(value) if value is not None else None)
         else:
             setattr(char, field_name, value)
 

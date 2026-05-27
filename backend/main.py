@@ -55,6 +55,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from sqlalchemy import text
+
 from backend.database import AsyncSessionLocal, get_db, init_db
 from backend.models.campaign import Campaign
 from backend.models.campaign import Session as GameSession
@@ -76,6 +78,17 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    async with AsyncSessionLocal() as db:
+        for col_sql in [
+            "ALTER TABLE characters ADD COLUMN spell_slots TEXT",
+            "ALTER TABLE characters ADD COLUMN resources TEXT",
+            "ALTER TABLE sessions ADD COLUMN notes TEXT",
+        ]:
+            try:
+                await db.execute(text(col_sql))
+                await db.commit()
+            except Exception:
+                await db.rollback()
     yield
 
 
@@ -417,6 +430,16 @@ async def _update_character_in_db(character_id: str, tool_input: dict) -> str:
             char.notes = (char.notes or "") + "\n" + notes_append
             changes.append(f"Added note for {char.name}")
 
+        # Spell slots
+        if "spell_slots" in tool_input:
+            char.spell_slots = json.dumps(tool_input["spell_slots"])
+            changes.append(f"Updated spell slots for {char.name}")
+
+        # Class resources
+        if "resources" in tool_input:
+            char.resources = json.dumps(tool_input["resources"])
+            changes.append(f"Updated resources for {char.name}")
+
         await db.commit()
 
         return "; ".join(changes) if changes else f"No changes made to {char.name}."
@@ -561,13 +584,15 @@ async def websocket_endpoint(
     Query parameters:
         player_id:   Unique identifier for this player.
         player_name: Display name shown to other players.
-        access_code: Campaign access code; connection is closed with 4403
-                     if the code does not match the session's campaign.
+        access_code: Campaign access code; omitting it or passing empty string
+                     grants read-only spectator access.  An incorrect non-empty
+                     code is rejected with close code 4403.
     """
     await session_hub.connect(ws, session_id, player_id)
 
     # Look up which campaign this session belongs to and verify access code
     campaign_id: Optional[str] = None
+    is_spectator_conn = False
     async with AsyncSessionLocal() as db:
         session_result = await db.execute(
             select(GameSession).where(GameSession.id == session_id)
@@ -575,15 +600,24 @@ async def websocket_endpoint(
         db_session = session_result.scalar_one_or_none()
         if db_session is not None:
             campaign_id = db_session.campaign_id
-            # Verify access code against the campaign when the session exists
             campaign_result = await db.execute(
                 select(Campaign).where(Campaign.id == campaign_id)
             )
             db_campaign = campaign_result.scalar_one_or_none()
-            if db_campaign is not None and db_campaign.access_code != access_code:
-                session_hub.disconnect(ws)
-                await ws.close(code=4403, reason="Invalid access code")
-                return
+            if db_campaign is not None:
+                campaign_code = db_campaign.access_code or ""
+                if campaign_code and not access_code:
+                    is_spectator_conn = True
+                elif campaign_code and access_code != campaign_code:
+                    session_hub.disconnect(ws)
+                    await ws.close(code=4403, reason="Invalid access code")
+                    return
+                elif not campaign_code and access_code:
+                    # Campaign has no code; any provided code is accepted
+                    pass
+
+    if is_spectator_conn:
+        session_hub.mark_spectator(ws)
 
     # Per-connection queue for awaiting player roll results
     # key: roll_request_id, value: asyncio.Queue that receives the result dict
@@ -804,6 +838,11 @@ async def websocket_endpoint(
             # ------------------------------------------------------------
             # join_session
             # ------------------------------------------------------------
+            if session_hub.is_spectator(ws) and msg_type in (
+                "player_action", "voice_transcript", "dice_image", "manual_roll", "dice_result"
+            ):
+                continue  # spectators cannot take actions
+
             if msg_type == "join_session":
                 incoming_player_name = data.get("player_name", player_name)
                 game_state_manager.add_player(session_id, player_id, incoming_player_name)
@@ -815,6 +854,7 @@ async def websocket_endpoint(
                         "session_id": session_id,
                         "player_id": player_id,
                         "player_name": incoming_player_name,
+                        "is_spectator": is_spectator_conn,
                     },
                 )
                 await session_hub.broadcast(

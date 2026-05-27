@@ -224,6 +224,24 @@ TOOLS: list[dict] = [
                     "type": "string",
                     "description": "Text to append to character notes",
                 },
+                "spell_slots": {
+                    "type": "object",
+                    "description": "Complete updated spell slot state. Keys are slot levels ('1'–'9'), values are objects with 'max' (int) and 'used' (int). Provide the full updated object, not a delta.",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {"max": {"type": "integer"}, "used": {"type": "integer"}},
+                        "required": ["max", "used"],
+                    },
+                },
+                "resources": {
+                    "type": "object",
+                    "description": "Complete updated resource state for class features like Ki, Rage, Superiority Dice, Channel Divinity, etc. Keys are snake_case resource names, values are objects with 'label' (string), 'max' (int), and 'used' (int). Provide the full updated object.",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {"label": {"type": "string"}, "max": {"type": "integer"}, "used": {"type": "integer"}},
+                        "required": ["label", "max", "used"],
+                    },
+                },
             },
             "required": ["character_id"],
         },

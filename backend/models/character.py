@@ -17,7 +17,7 @@ and the ``update_character`` endpoint re-serialises them on write.
 
 import json
 import uuid
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from sqlalchemy import String, Text, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -76,6 +76,8 @@ class Character(Base):
     inventory: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     conditions: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    spell_slots: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    resources: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="characters")  # type: ignore[name-defined]
 
@@ -132,6 +134,8 @@ class CharacterResponse(BaseModel):
     inventory: list[str]
     conditions: list[str]
     notes: str
+    spell_slots: Optional[Dict[str, Any]] = None
+    resources: Optional[Dict[str, Any]] = None
 
     model_config = {"from_attributes": True}
 
@@ -164,6 +168,8 @@ class CharacterResponse(BaseModel):
                 "inventory": safe_json(obj.inventory, []),
                 "conditions": safe_json(obj.conditions, []),
                 "notes": obj.notes,
+                "spell_slots": safe_json(getattr(obj, "spell_slots", None), None),
+                "resources": safe_json(getattr(obj, "resources", None), None),
             }
         if isinstance(values, dict):
 
@@ -177,6 +183,9 @@ class CharacterResponse(BaseModel):
 
             for field, default in [("stats", {}), ("inventory", []), ("conditions", [])]:
                 values[field] = safe_json(values.get(field), default)
+            for field in ("spell_slots", "resources"):
+                if field in values:
+                    values[field] = safe_json(values.get(field), None)
         return values
 
 
@@ -198,3 +207,5 @@ class CharacterUpdate(BaseModel):
     inventory: Optional[list[str]] = None
     conditions: Optional[list[str]] = None
     notes: Optional[str] = None
+    spell_slots: Optional[Dict[str, Any]] = None
+    resources: Optional[Dict[str, Any]] = None

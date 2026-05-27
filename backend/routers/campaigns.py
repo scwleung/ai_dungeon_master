@@ -337,6 +337,42 @@ async def list_quests(campaign_id: str, db: AsyncSession = Depends(get_db)):
     return {"campaign_id": campaign_id, "quests": quests}
 
 
+@router.get("/sessions/{session_id}/notes")
+async def get_session_notes(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the collaborative notes for a session."""
+    result = await db.execute(select(GameSession).where(GameSession.id == session_id))
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session_id": session_id, "notes": session.notes or ""}
+
+
+class SessionNotesUpdate(BaseModel):
+    """Request body for updating session notes."""
+
+    notes: str
+
+
+@router.put("/sessions/{session_id}/notes")
+async def update_session_notes(
+    session_id: str,
+    payload: SessionNotesUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the collaborative notes for a session."""
+    result = await db.execute(select(GameSession).where(GameSession.id == session_id))
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session.notes = payload.notes
+    db.add(session)
+    await db.commit()
+    return {"session_id": session_id, "notes": session.notes}
+
+
 @router.put("/sessions/{session_id}/end", response_model=SessionResponse)
 async def end_session(
     session_id: str,

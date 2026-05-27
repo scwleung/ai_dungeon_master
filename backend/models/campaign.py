@@ -112,6 +112,7 @@ class Session(Base):
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     messages: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     session_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="sessions")
 
@@ -219,6 +220,7 @@ class SessionResponse(BaseModel):
     ended_at: Optional[datetime] = None
     messages: list[NarrativeMessage] = []
     session_summary: Optional[str] = None
+    notes: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -243,6 +245,7 @@ class SessionResponse(BaseModel):
                 "ended_at": obj.ended_at,
                 "messages": parsed,
                 "session_summary": getattr(obj, "session_summary", None),
+                "notes": getattr(obj, "notes", None),
             }
         if isinstance(values, dict):
             raw = values.get("messages", "[]")

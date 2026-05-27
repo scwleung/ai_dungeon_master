@@ -90,6 +90,9 @@ export interface Character {
   death_saves?: { successes: number; failures: number }
   concentration?: string
   inspiration?: boolean
+  currency?: { gp: number; sp: number; cp: number; ep?: number; pp?: number }
+  spellbook?: Array<{ name: string; level: number; prepared: boolean }>
+  audit_log?: Array<{ timestamp: string; change: string }>
 }
 
 /** Shape required to create a new character (id and campaign_id are assigned by the server). */
@@ -277,6 +280,8 @@ export interface WsDiceRequest {
   skill: string
   /** Difficulty class the roll must meet or exceed; omitted for open rolls. */
   dc?: number
+  advantage?: boolean
+  disadvantage?: boolean
 }
 
 /** Partial state sync pushed from the server after world or character changes. */
@@ -538,6 +543,27 @@ export interface WsHandoutPush {
   handout: Handout
 }
 
+export interface WsOOCBroadcast {
+  type: 'ooc_broadcast'
+  player_id: string
+  player_name: string
+  text: string
+  timestamp: string
+}
+
+export interface WsReadyCheck {
+  type: 'ready_check'
+  message: string
+  from_player_id: string
+}
+
+export interface WsReadyResponse {
+  type: 'ready_response'
+  player_id: string
+  player_name: string
+  ready: boolean
+}
+
 /** Union of all messages the server may push to the client over the WebSocket. */
 export type WsServerMessage =
   | WsDmChunk
@@ -563,5 +589,16 @@ export type WsServerMessage =
   | WsMapAnnotationUpdate
   | WsTimeUpdate
   | WsHandoutPush
+  | WsOOCBroadcast
+  | WsReadyCheck
+  | WsReadyResponse
 
 export type AmbientSound = 'tavern' | 'dungeon' | 'battle' | 'forest' | 'rain' | 'none'
+
+export interface OOCEntry {
+  id: string
+  player_id: string
+  player_name: string
+  text: string
+  timestamp: string
+}

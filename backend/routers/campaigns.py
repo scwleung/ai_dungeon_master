@@ -647,3 +647,204 @@ async def update_party_state(
     db.add(campaign)
     await db.commit()
     return {"campaign_id": campaign_id, "gold": payload.gold, "items": payload.items}
+
+
+# ---------------------------------------------------------------------------
+# World time/weather endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{campaign_id}/world-time")
+async def get_world_time(campaign_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id!r} not found")
+    time_data = json.loads(campaign.world_time or '{"day": 1, "hour": 8, "minute": 0, "weather": "clear", "temperature": "mild", "time_of_day": "morning"}')
+    return {"campaign_id": campaign_id, "world_time": time_data}
+
+
+class WorldTimeUpdate(BaseModel):
+    day: Optional[int] = None
+    hour: Optional[int] = None
+    minute: Optional[int] = None
+    weather: Optional[str] = None
+    temperature: Optional[str] = None
+    time_of_day: Optional[str] = None
+
+
+@router.put("/{campaign_id}/world-time")
+async def update_world_time(
+    campaign_id: str,
+    payload: WorldTimeUpdate,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id!r} not found")
+    existing = json.loads(campaign.world_time or '{"day": 1, "hour": 8, "minute": 0, "weather": "clear", "temperature": "mild", "time_of_day": "morning"}')
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    existing.update(updates)
+    if "hour" in updates and "time_of_day" not in updates:
+        h = existing["hour"] % 24
+        if 5 <= h < 8: existing["time_of_day"] = "dawn"
+        elif 8 <= h < 12: existing["time_of_day"] = "morning"
+        elif 12 <= h < 17: existing["time_of_day"] = "afternoon"
+        elif 17 <= h < 20: existing["time_of_day"] = "evening"
+        elif 20 <= h < 23: existing["time_of_day"] = "night"
+        else: existing["time_of_day"] = "midnight"
+    campaign.world_time = json.dumps(existing)
+    await db.flush()
+    active = await db.execute(select(GameSession).where(GameSession.campaign_id == campaign_id, GameSession.ended_at.is_(None)))
+    for sess in active.scalars().all():
+        await session_hub.broadcast(sess.id, {"type": "time_update", "world_time": existing})
+    return {"campaign_id": campaign_id, "world_time": existing}
+
+
+# ---------------------------------------------------------------------------
+# Handout endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{campaign_id}/handouts")
+async def get_handouts(campaign_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id!r} not found")
+    return {"campaign_id": campaign_id, "handouts": json.loads(campaign.handouts or "[]")}
+
+
+class HandoutCreate(BaseModel):
+    title: str
+    content: str
+    type: str = "text"
+
+
+@router.post("/{campaign_id}/handouts")
+async def create_handout(
+    campaign_id: str,
+    payload: HandoutCreate,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
+    from datetime import timezone
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id!r} not found")
+    handouts = json.loads(campaign.handouts or "[]")
+    new_handout = {
+        "id": str(uuid.uuid4()),
+        "title": payload.title,
+        "content": payload.content,
+        "type": payload.type,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    handouts.append(new_handout)
+    campaign.handouts = json.dumps(handouts)
+    await db.flush()
+    active = await db.execute(select(GameSession).where(GameSession.campaign_id == campaign_id, GameSession.ended_at.is_(None)))
+    for sess in active.scalars().all():
+        await session_hub.broadcast(sess.id, {"type": "handout_push", "handout": new_handout})
+    return {"campaign_id": campaign_id, "handout": new_handout}
+
+
+@router.delete("/{campaign_id}/handouts/{handout_id}")
+async def delete_handout(
+    campaign_id: str,
+    handout_id: str,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id!r} not found")
+    handouts = [h for h in json.loads(campaign.handouts or "[]") if h["id"] != handout_id]
+    campaign.handouts = json.dumps(handouts)
+    await db.flush()
+    return {"campaign_id": campaign_id, "handouts": handouts}
+
+
+# ---------------------------------------------------------------------------
+# Timeline endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{campaign_id}/timeline")
+async def get_timeline(campaign_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id!r} not found")
+    return {"campaign_id": campaign_id, "timeline": json.loads(campaign.timeline or "[]")}
+
+
+class TimelineEntryCreate(BaseModel):
+    description: str
+    session_tag: str = ""
+
+
+@router.post("/{campaign_id}/timeline")
+async def add_timeline_entry(
+    campaign_id: str,
+    payload: TimelineEntryCreate,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
+    from datetime import timezone
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id!r} not found")
+    timeline = json.loads(campaign.timeline or "[]")
+    entry = {
+        "id": str(uuid.uuid4()),
+        "description": payload.description,
+        "session_tag": payload.session_tag,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    timeline.append(entry)
+    campaign.timeline = json.dumps(timeline)
+    await db.flush()
+    return {"campaign_id": campaign_id, "entry": entry}
+
+
+@router.delete("/{campaign_id}/timeline/{entry_id}")
+async def delete_timeline_entry(
+    campaign_id: str,
+    entry_id: str,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id!r} not found")
+    timeline = [e for e in json.loads(campaign.timeline or "[]") if e["id"] != entry_id]
+    campaign.timeline = json.dumps(timeline)
+    await db.flush()
+    return {"campaign_id": campaign_id, "timeline": timeline}
+
+
+# ---------------------------------------------------------------------------
+# Loot generator endpoint
+# ---------------------------------------------------------------------------
+
+
+class LootRequest(BaseModel):
+    cr: float = 1.0
+    environment: str = "dungeon"
+    count: int = 5
+
+
+@router.post("/{campaign_id}/loot")
+async def generate_loot_endpoint(campaign_id: str, payload: LootRequest):
+    """Generate treasure loot appropriate for the given CR and environment."""
+    from backend.services.dm_brain import DungeonMaster
+    dm_instance = DungeonMaster()
+    items = await dm_instance.generate_loot(payload.cr, payload.environment, payload.count)
+    return {"campaign_id": campaign_id, "items": items}

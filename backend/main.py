@@ -97,6 +97,9 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE characters ADD COLUMN concentration TEXT",
             "ALTER TABLE characters ADD COLUMN inspiration INTEGER DEFAULT 0",
             "ALTER TABLE campaigns ADD COLUMN map_annotations TEXT",
+            "ALTER TABLE campaigns ADD COLUMN world_time TEXT",
+            "ALTER TABLE campaigns ADD COLUMN handouts TEXT",
+            "ALTER TABLE campaigns ADD COLUMN timeline TEXT",
         ]:
             try:
                 await db.execute(text(col_sql))

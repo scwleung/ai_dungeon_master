@@ -852,6 +852,34 @@ class DungeonMaster:
         return response.content[0].text
 
     # ------------------------------------------------------------------
+    # Loot generation
+    # ------------------------------------------------------------------
+
+    async def generate_loot(self, cr: float, environment: str, count: int = 5) -> list[str]:
+        """Generate treasure items appropriate for the given CR and environment using Claude Haiku."""
+        prompt = (
+            f"Generate exactly {count} treasure items for a CR {cr} encounter "
+            f"in a {environment} environment in a fantasy D&D-style setting. "
+            "Return ONLY a valid JSON array of strings. Each string is one item "
+            "with a brief description. "
+            'Example: ["Golden chalice worth 50 gp", "Potion of Healing", "Scroll of Fireball"]'
+        )
+        response = await self.client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+        try:
+            items = json.loads(text)
+            if isinstance(items, list):
+                return [str(i) for i in items[:count]]
+        except (json.JSONDecodeError, ValueError):
+            pass
+        lines = [ln.strip().lstrip("0123456789.-) ").strip("\"'") for ln in text.split("\n") if ln.strip()]
+        return [ln for ln in lines if ln][:count]
+
+    # ------------------------------------------------------------------
     # Vision: dice detection
     # ------------------------------------------------------------------
 

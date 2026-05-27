@@ -73,6 +73,9 @@ class Campaign(Base):
     quests: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     party_state: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     map_annotations: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    world_time: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    handouts: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    timeline: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     characters: Mapped[list["Character"]] = relationship(  # type: ignore[name-defined]
         "Character",

@@ -152,7 +152,7 @@ async def update_character(
     update_data = payload.model_dump(exclude_unset=True)
 
     for field_name, value in update_data.items():
-        if field_name in ("stats", "inventory", "conditions", "spell_slots", "resources") and not isinstance(
+        if field_name in ("stats", "inventory", "conditions", "spell_slots", "resources", "currency", "spellbook") and not isinstance(
             value, str
         ):
             # Serialize Python objects back to JSON strings for storage
@@ -182,3 +182,17 @@ async def delete_character(
         )
     await db.delete(char)
     await db.flush()
+
+
+@router.get("/characters/{character_id}/audit-log")
+async def get_character_audit_log(character_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the audit log for a character."""
+    result = await db.execute(select(Character).where(Character.id == character_id))
+    char = result.scalar_one_or_none()
+    if char is None:
+        raise HTTPException(status_code=404, detail=f"Character {character_id!r} not found")
+    try:
+        audit = json.loads(char.audit_log or "[]")
+    except (json.JSONDecodeError, TypeError):
+        audit = []
+    return {"character_id": character_id, "audit_log": audit}

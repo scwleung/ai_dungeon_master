@@ -181,6 +181,14 @@ TOOLS: list[dict] = [
                     "type": "integer",
                     "description": "Difficulty class (optional — omit to keep secret)",
                 },
+                "advantage": {
+                    "type": "boolean",
+                    "description": "If true, player rolls 2d20 and keeps the highest result.",
+                },
+                "disadvantage": {
+                    "type": "boolean",
+                    "description": "If true, player rolls 2d20 and keeps the lowest result.",
+                },
             },
             "required": ["player_id", "dice", "skill"],
         },

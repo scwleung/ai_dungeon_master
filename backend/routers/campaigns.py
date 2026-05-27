@@ -848,3 +848,132 @@ async def generate_loot_endpoint(campaign_id: str, payload: LootRequest):
     dm_instance = DungeonMaster()
     items = await dm_instance.generate_loot(payload.cr, payload.environment, payload.count)
     return {"campaign_id": campaign_id, "items": items}
+
+
+# ---------------------------------------------------------------------------
+# DM private notes endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/sessions/{session_id}/dm-notes")
+async def get_dm_notes(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
+    result = await db.execute(select(GameSession).where(GameSession.id == session_id))
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session_id": session_id, "dm_notes": session.dm_notes or ""}
+
+
+class DMNotesUpdate(BaseModel):
+    dm_notes: str
+
+
+@router.put("/sessions/{session_id}/dm-notes")
+async def update_dm_notes(
+    session_id: str,
+    payload: DMNotesUpdate,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
+    result = await db.execute(select(GameSession).where(GameSession.id == session_id))
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session.dm_notes = payload.dm_notes
+    await db.flush()
+    return {"session_id": session_id, "dm_notes": session.dm_notes}
+
+
+# ---------------------------------------------------------------------------
+# Read-aloud library endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{campaign_id}/readalouds")
+async def get_readalouds(campaign_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=404, detail=f"Campaign {campaign_id!r} not found")
+    return {"campaign_id": campaign_id, "readalouds": json.loads(campaign.readalouds or "[]")}
+
+
+class ReadAloudCreate(BaseModel):
+    title: str
+    content: str
+
+
+@router.post("/{campaign_id}/readalouds")
+async def create_readaloud(
+    campaign_id: str,
+    payload: ReadAloudCreate,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
+    from datetime import timezone
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=404, detail=f"Campaign {campaign_id!r} not found")
+    readalouds = json.loads(campaign.readalouds or "[]")
+    entry = {"id": str(uuid.uuid4()), "title": payload.title, "content": payload.content, "created_at": datetime.now(timezone.utc).isoformat()}
+    readalouds.append(entry)
+    campaign.readalouds = json.dumps(readalouds)
+    await db.flush()
+    return {"campaign_id": campaign_id, "readaloud": entry}
+
+
+@router.delete("/{campaign_id}/readalouds/{readaloud_id}")
+async def delete_readaloud(
+    campaign_id: str, readaloud_id: str,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=404, detail=f"Campaign {campaign_id!r} not found")
+    readalouds = [r for r in json.loads(campaign.readalouds or "[]") if r["id"] != readaloud_id]
+    campaign.readalouds = json.dumps(readalouds)
+    await db.flush()
+    return {"campaign_id": campaign_id, "readalouds": readalouds}
+
+
+# ---------------------------------------------------------------------------
+# NPC name generator endpoint
+# ---------------------------------------------------------------------------
+
+
+class NameGenRequest(BaseModel):
+    race: str = "human"
+    count: int = 6
+
+
+@router.post("/{campaign_id}/generate-names")
+async def generate_npc_names(campaign_id: str, payload: NameGenRequest):
+    """Generate NPC names for the given race using Claude Haiku."""
+    from backend.services.dm_brain import DungeonMaster
+    dm_instance = DungeonMaster()
+    prompt = (
+        f"Generate exactly {payload.count} distinct fantasy NPC names for a {payload.race} "
+        "in a D&D-style setting. Return ONLY a JSON array of name strings. "
+        'Example: ["Aldric Vane", "Mira of the Stone", "Jorren Blackwell"]'
+    )
+    response = await dm_instance.client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=200,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = response.content[0].text.strip()
+    try:
+        names = json.loads(text)
+        if isinstance(names, list):
+            return {"campaign_id": campaign_id, "names": [str(n) for n in names[:payload.count]]}
+    except (json.JSONDecodeError, ValueError):
+        pass
+    names = [ln.strip().lstrip("0123456789.-) \"'") for ln in text.split("\n") if ln.strip()]
+    return {"campaign_id": campaign_id, "names": [n for n in names if n][:payload.count]}

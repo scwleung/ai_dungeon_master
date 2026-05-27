@@ -82,6 +82,9 @@ class Character(Base):
     death_saves: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     concentration: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     inspiration: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
+    currency: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    spellbook: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    audit_log: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="characters")  # type: ignore[name-defined]
 
@@ -144,6 +147,9 @@ class CharacterResponse(BaseModel):
     death_saves: Optional[Dict[str, int]] = None
     concentration: Optional[str] = None
     inspiration: bool = False
+    currency: Optional[Dict[str, int]] = None   # {"gp": 0, "sp": 0, "cp": 0, "ep": 0, "pp": 0}
+    spellbook: Optional[list] = None            # list of {"name": str, "level": int, "prepared": bool}
+    audit_log: Optional[list] = None            # read-only, list of {"timestamp": str, "change": str}
 
     model_config = {"from_attributes": True}
 
@@ -182,6 +188,9 @@ class CharacterResponse(BaseModel):
                 "death_saves": safe_json(getattr(obj, "death_saves", None), None),
                 "concentration": getattr(obj, "concentration", None),
                 "inspiration": bool(getattr(obj, "inspiration", 0) or 0),
+                "currency": safe_json(getattr(obj, "currency", None), None),
+                "spellbook": safe_json(getattr(obj, "spellbook", None), None),
+                "audit_log": safe_json(getattr(obj, "audit_log", None), None),
             }
         if isinstance(values, dict):
 
@@ -225,3 +234,5 @@ class CharacterUpdate(BaseModel):
     death_saves: Optional[Dict[str, int]] = None
     concentration: Optional[str] = None
     inspiration: Optional[bool] = None
+    currency: Optional[Dict[str, int]] = None
+    spellbook: Optional[list] = None

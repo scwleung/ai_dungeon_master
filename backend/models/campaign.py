@@ -76,6 +76,7 @@ class Campaign(Base):
     world_time: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     handouts: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     timeline: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    readalouds: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     characters: Mapped[list["Character"]] = relationship(  # type: ignore[name-defined]
         "Character",
@@ -119,6 +120,7 @@ class Session(Base):
     session_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     pinned_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    dm_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="sessions")
 

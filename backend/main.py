@@ -100,6 +100,11 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE campaigns ADD COLUMN world_time TEXT",
             "ALTER TABLE campaigns ADD COLUMN handouts TEXT",
             "ALTER TABLE campaigns ADD COLUMN timeline TEXT",
+            "ALTER TABLE characters ADD COLUMN currency TEXT",
+            "ALTER TABLE characters ADD COLUMN spellbook TEXT",
+            "ALTER TABLE characters ADD COLUMN audit_log TEXT",
+            "ALTER TABLE sessions ADD COLUMN dm_notes TEXT",
+            "ALTER TABLE campaigns ADD COLUMN readalouds TEXT",
         ]:
             try:
                 await db.execute(text(col_sql))
@@ -502,6 +507,26 @@ async def _update_character_in_db(character_id: str, tool_input: dict) -> str:
             status = "gained" if tool_input["inspiration"] else "spent"
             changes.append(f"{char.name} {status} inspiration")
 
+        if "currency" in tool_input:
+            char.currency = json.dumps(tool_input["currency"])
+            changes.append(f"Updated currency for {char.name}")
+
+        if "spellbook" in tool_input:
+            char.spellbook = json.dumps(tool_input["spellbook"])
+            changes.append(f"Updated spellbook for {char.name}")
+
+        # Append audit log entry
+        if changes:
+            try:
+                audit = json.loads(char.audit_log or "[]")
+            except (json.JSONDecodeError, TypeError):
+                audit = []
+            audit.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "change": "; ".join(changes),
+            })
+            char.audit_log = json.dumps(audit[-200:])  # cap at 200 entries
+
         await db.commit()
 
         return "; ".join(changes) if changes else f"No changes made to {char.name}."
@@ -772,6 +797,13 @@ async def websocket_endpoint(
             }
             if dc is not None:
                 request_payload["dc"] = dc
+
+            advantage = tool_input.get("advantage")
+            disadvantage = tool_input.get("disadvantage")
+            if advantage:
+                request_payload["advantage"] = True
+            if disadvantage:
+                request_payload["disadvantage"] = True
 
             await session_hub.send_to_player(session_id, target_player_id, request_payload)
             # Also broadcast so all players see the request
@@ -1204,6 +1236,41 @@ async def websocket_endpoint(
                             "sound": data.get("sound", "none"),
                         },
                     )
+
+            elif msg_type == "ooc_message":
+                if not is_spectator_conn:
+                    await session_hub.broadcast(
+                        session_id,
+                        {
+                            "type": "ooc_broadcast",
+                            "player_id": data.get("player_id", player_id),
+                            "player_name": data.get("player_name", ""),
+                            "text": data.get("text", ""),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
+
+            elif msg_type == "ready_check":
+                if not is_spectator_conn:
+                    await session_hub.broadcast(
+                        session_id,
+                        {
+                            "type": "ready_check",
+                            "message": data.get("message", "Are you ready?"),
+                            "from_player_id": player_id,
+                        },
+                    )
+
+            elif msg_type == "ready_response":
+                await session_hub.broadcast(
+                    session_id,
+                    {
+                        "type": "ready_response",
+                        "player_id": data.get("player_id", player_id),
+                        "player_name": data.get("player_name", ""),
+                        "ready": bool(data.get("ready", False)),
+                    },
+                )
 
             else:
                 # Unknown message type — silently ignore to keep the connection alive

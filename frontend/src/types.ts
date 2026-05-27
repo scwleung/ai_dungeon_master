@@ -87,6 +87,9 @@ export interface Character {
   resources?: Record<string, { label: string; max: number; used: number }>
   /** Total experience points accumulated by the character. */
   xp?: number
+  death_saves?: { successes: number; failures: number }
+  concentration?: string
+  inspiration?: boolean
 }
 
 /** Shape required to create a new character (id and campaign_id are assigned by the server). */
@@ -344,6 +347,16 @@ export interface MapRoom {
   h: number
 }
 
+/** A player-placed pin on the dungeon map. */
+export interface MapAnnotation {
+  id: string
+  x: number
+  y: number
+  text: string
+  player_name: string
+  color?: string
+}
+
 /** Full dungeon map state stored on the campaign and rendered by DungeonMap. */
 export interface MapData {
   /** RNG seed used to generate this map (for reproducibility). */
@@ -465,6 +478,25 @@ export interface WsPinnedUpdate {
   pins: Array<{ id: string; text: string }>
 }
 
+/** Relay of a player's voice-recording state. */
+export interface WsVoiceRecording {
+  type: 'voice_recording'
+  player_id: string
+  active: boolean
+}
+
+/** DM-broadcast ambient sound selection. */
+export interface WsAmbientUpdate {
+  type: 'ambient_update'
+  sound: 'tavern' | 'dungeon' | 'battle' | 'forest' | 'rain' | 'none'
+}
+
+/** Map annotation pins update. */
+export interface WsMapAnnotationUpdate {
+  type: 'map_annotation_update'
+  annotations: MapAnnotation[]
+}
+
 /** Union of all messages the server may push to the client over the WebSocket. */
 export type WsServerMessage =
   | WsDmChunk
@@ -485,3 +517,8 @@ export type WsServerMessage =
   | WsQuestUpdate
   | WsPartyUpdate
   | WsPinnedUpdate
+  | WsVoiceRecording
+  | WsAmbientUpdate
+  | WsMapAnnotationUpdate
+
+export type AmbientSound = 'tavern' | 'dungeon' | 'battle' | 'forest' | 'rain' | 'none'

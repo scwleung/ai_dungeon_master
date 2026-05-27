@@ -93,6 +93,8 @@ export interface Character {
   currency?: { gp: number; sp: number; cp: number; ep?: number; pp?: number }
   spellbook?: Array<{ name: string; level: number; prepared: boolean }>
   audit_log?: Array<{ timestamp: string; change: string }>
+  hit_dice_remaining?: number
+  exhaustion?: number
 }
 
 /** Shape required to create a new character (id and campaign_id are assigned by the server). */
@@ -564,6 +566,24 @@ export interface WsReadyResponse {
   ready: boolean
 }
 
+export interface WsPing {
+  type: 'ping'
+}
+
+export interface WsSceneMarker {
+  type: 'scene_marker'
+  title: string
+}
+
+export interface WsSecretRollResult {
+  type: 'secret_roll_result'
+  dice: string
+  values: number[]
+  total: number
+  modifier: number
+  reason: string
+}
+
 /** Union of all messages the server may push to the client over the WebSocket. */
 export type WsServerMessage =
   | WsDmChunk
@@ -592,8 +612,18 @@ export type WsServerMessage =
   | WsOOCBroadcast
   | WsReadyCheck
   | WsReadyResponse
+  | WsPing
+  | WsSceneMarker
+  | WsSecretRollResult
 
 export type AmbientSound = 'tavern' | 'dungeon' | 'battle' | 'forest' | 'rain' | 'none'
+
+export interface Toast {
+  id: string
+  message: string
+  type: 'success' | 'error' | 'info' | 'warning'
+  duration?: number
+}
 
 export interface OOCEntry {
   id: string

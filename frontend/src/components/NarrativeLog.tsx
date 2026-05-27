@@ -12,6 +12,23 @@ function formatTime(iso: string): string {
 
 function MessageItem({ msg }: { msg: NarrativeMessage }) {
   const roleClass = `msg-${msg.role}`
+
+  if (msg.text.startsWith('🎬 SCENE:')) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '0.75rem',
+        margin: '1rem 0', padding: '0.5rem 0',
+        borderTop: '2px solid var(--color-accent)',
+        borderBottom: '2px solid var(--color-accent)',
+      }}>
+        <span style={{ fontSize: '1.1rem' }}>🎬</span>
+        <strong style={{ color: 'var(--color-accent)', letterSpacing: '0.05em', fontSize: '0.95rem' }}>
+          {msg.text.replace('🎬 SCENE:', '').trim()}
+        </strong>
+      </div>
+    )
+  }
+
   return (
     <div className={`message-item ${roleClass} animate-fade-in`} title={formatTime(msg.timestamp)}>
       {msg.role === 'player' && msg.player_name && (

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { api } from '../api/client'
 import { CampaignSetup } from './CampaignSetup'
@@ -43,7 +43,13 @@ export function CampaignList() {
   const [error, setError] = useState<string | null>(null)
   const [importMessage, setImportMessage] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
+  const [loading, setLoading] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    loadCampaigns().finally(() => setLoading(false))
+  }, [loadCampaigns])
 
   async function handleContinue(campaign: Campaign) {
     setActiveCampaign(campaign)
@@ -127,7 +133,27 @@ export function CampaignList() {
       {error && <div className="error-banner">{error}</div>}
       {importMessage && <div className="import-success-banner">{importMessage}</div>}
 
-      {campaigns.length === 0 ? (
+      {loading ? (
+        <>
+          <style>{`
+            @keyframes shimmer {
+              0% { background-position: -200% 0; }
+              100% { background-position: 200% 0; }
+            }
+            .skeleton {
+              background: linear-gradient(90deg, var(--color-surface, #1a1a2e) 25%, var(--color-border, #333) 50%, var(--color-surface, #1a1a2e) 75%);
+              background-size: 200% 100%;
+              animation: shimmer 1.5s infinite;
+              border-radius: 6px;
+            }
+          `}</style>
+          <div className="campaign-grid">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="skeleton" style={{ height: 80, marginBottom: '0.75rem' }} />
+            ))}
+          </div>
+        </>
+      ) : campaigns.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">⚔</div>
           <h2>No Campaigns Yet</h2>

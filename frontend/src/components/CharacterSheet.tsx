@@ -11,6 +11,17 @@ interface Props {
   onRollSkill?: (skill: string, modifier: number) => void
 }
 
+function proficiencyBonus(level: number): number {
+  return Math.floor((level - 1) / 4) + 2
+}
+
+const HIT_DIE: Record<string, number> = {
+  barbarian: 12, fighter: 10, paladin: 10, ranger: 10,
+  bard: 8, cleric: 8, druid: 8, monk: 8, rogue: 8, warlock: 8,
+  sorcerer: 6, wizard: 6,
+}
+function getHitDie(cls: string) { return HIT_DIE[cls.toLowerCase()] ?? 8 }
+
 const XP_TO_NEXT: Record<number, number> = {
   1: 300, 2: 900, 3: 2700, 4: 6500, 5: 14000, 6: 23000, 7: 34000,
   8: 48000, 9: 64000, 10: 85000, 11: 100000, 12: 120000, 13: 140000,
@@ -210,6 +221,24 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill 
         <div className="cs-class-row">
           {character.race} {character.class_name}
           <span className="cs-player"> — {character.player_name}</span>
+          <span style={{ fontSize: '0.8rem', color: 'var(--color-accent)', marginLeft: '0.5rem' }}>
+            Prof +{proficiencyBonus(character.level)}
+          </span>
+        </div>
+
+        {/* Saving Throws */}
+        <div style={{ marginTop: '0.5rem' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--color-muted)', marginBottom: '0.2rem' }}>Saving Throws</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+            {(['STR','DEX','CON','INT','WIS','CHA'] as const).map(attr => {
+              const mod = Math.floor(((character.stats[attr] ?? 10) - 10) / 2)
+              return (
+                <span key={attr} style={{ fontSize: '0.75rem', padding: '0.1rem 0.4rem', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4 }}>
+                  {attr} {mod >= 0 ? '+' : ''}{mod}
+                </span>
+              )
+            })}
+          </div>
         </div>
 
         {/* HP */}
@@ -345,6 +374,29 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill 
           </div>
         )}
 
+        {/* Hit Dice */}
+        {character.level > 0 && (
+          <div style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}>
+            <span style={{ color: 'var(--color-muted)' }}>Hit Dice (d{getHitDie(character.class_name)}): </span>
+            <span>{character.hit_dice_remaining ?? character.level}/{character.level}</span>
+            {(character.hit_dice_remaining ?? character.level) > 0 && character.hp_current < character.hp_max && (
+              <button
+                onClick={() => {
+                  const die = getHitDie(character.class_name)
+                  const conMod = Math.floor(((character.stats.CON ?? 10) - 10) / 2)
+                  const roll = Math.floor(Math.random() * die) + 1
+                  const heal = Math.max(1, roll + conMod)
+                  const newHP = Math.min(character.hp_max, character.hp_current + heal)
+                  const newHD = (character.hit_dice_remaining ?? character.level) - 1
+                  update({ hp_current: newHP, hit_dice_remaining: newHD })
+                }}
+                style={{ marginLeft: '0.5rem', fontSize: '0.7rem', padding: '0.1rem 0.4rem', background: 'none', border: '1px solid var(--color-accent)', borderRadius: 3, cursor: 'pointer', color: 'var(--color-accent)' }}
+                title="Roll hit die to recover HP"
+              >Roll HD</button>
+            )}
+          </div>
+        )}
+
         {/* XP Bar */}
         {character.xp !== undefined && (
           <div className="cs-xp-section">
@@ -473,6 +525,31 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill 
                 >✕</button>
               </div>
             ) : null}
+          </div>
+          {/* Exhaustion */}
+          <div style={{ marginTop: '0.5rem' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginBottom: '0.2rem' }}>Exhaustion</div>
+            <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+              {[1,2,3,4,5,6].map(level => (
+                <button
+                  key={level}
+                  onClick={() => update({ exhaustion: (character.exhaustion ?? 0) >= level ? level - 1 : level })}
+                  style={{
+                    width: 22, height: 22, borderRadius: '50%', fontSize: '0.6rem',
+                    border: `1px solid ${level <= (character.exhaustion ?? 0) ? '#e74c3c' : 'var(--color-border)'}`,
+                    background: level <= (character.exhaustion ?? 0) ? '#e74c3c' : 'transparent',
+                    color: level <= (character.exhaustion ?? 0) ? 'white' : 'var(--color-muted)',
+                    cursor: 'pointer', padding: 0,
+                  }}
+                  title={['', 'Disadvantage on ability checks', 'Speed halved', 'Disadv. on attacks & saves', 'HP max halved', 'Speed = 0', 'Death'][level]}
+                >{level}</button>
+              ))}
+              {(character.exhaustion ?? 0) > 0 && (
+                <span style={{ fontSize: '0.7rem', color: '#e74c3c', marginLeft: '0.25rem' }}>
+                  {['','Disadv. checks','Speed halved','Disadv. attacks/saves','HP max halved','Speed 0','Death'][(character.exhaustion ?? 0)]}
+                </span>
+              )}
+            </div>
           </div>
         </Section>
 

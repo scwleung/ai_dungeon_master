@@ -110,6 +110,22 @@ export default function WorldClock({ worldTime, isDM, onUpdate, onClose }: Props
                 <option key={w} value={w}>{WEATHER_EMOJI[w] ?? ''} {w.charAt(0).toUpperCase() + w.slice(1)}</option>
               ))}
             </select>
+            {(() => {
+              const hints: Record<string, string> = {
+                rain: 'Heavy rain: disadvantage on Perception checks, ranged attacks.',
+                storm: 'Storm: disadvantage on Perception, ranged attacks; concentration DC 15.',
+                snow: 'Snow: difficult terrain outdoors; disadvantage on Perception.',
+                fog: 'Fog: heavily obscured beyond 5 ft; disadvantage on Perception.',
+                clear: '',
+                cloudy: '',
+              }
+              const hint = hints[worldTime.weather] ?? ''
+              return hint ? (
+                <div style={{ fontSize: '0.7rem', color: 'var(--color-muted, #888)', marginTop: '0.25rem', fontStyle: 'italic' }}>
+                  ⚔ {hint}
+                </div>
+              ) : null
+            })()}
           </div>
 
           <div>

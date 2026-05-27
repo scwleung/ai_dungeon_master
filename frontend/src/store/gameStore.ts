@@ -19,6 +19,7 @@ import type {
   Session,
   ThemeName,
   TimelineEntry,
+  Toast,
   TTSProvider,
   WorldTime,
 } from '../types'
@@ -340,6 +341,15 @@ export interface GameStore {
   readyState: Record<string, boolean>
   setReadyResponse: (playerId: string, ready: boolean) => void
   clearReadyState: () => void
+
+  // Toasts
+  toasts: Toast[]
+  addToast: (message: string, type?: Toast['type'], duration?: number) => void
+  removeToast: (id: string) => void
+
+  // Secret rolls
+  secretRolls: Array<{ id: string; dice: string; values: number[]; total: number; reason: string; timestamp: string }>
+  addSecretRoll: (roll: { dice: string; values: number[]; total: number; reason: string }) => void
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -666,4 +676,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
   readyState: {},
   setReadyResponse: (playerId, ready) => set((state) => ({ readyState: { ...state.readyState, [playerId]: ready } })),
   clearReadyState: () => set({ readyState: {} }),
+
+  // Toasts
+  toasts: [],
+  addToast: (message, type = 'info', duration = 3000) => {
+    const id = crypto.randomUUID()
+    set(state => ({ toasts: [...state.toasts, { id, message, type, duration }] }))
+    setTimeout(() => get().removeToast(id), duration)
+  },
+  removeToast: (id) => set(state => ({ toasts: state.toasts.filter(t => t.id !== id) })),
+
+  // Secret rolls
+  secretRolls: [],
+  addSecretRoll: (roll) => set(state => ({
+    secretRolls: [{ ...roll, id: crypto.randomUUID(), timestamp: new Date().toISOString() }, ...state.secretRolls].slice(0, 50)
+  })),
 }))

@@ -4,6 +4,8 @@ import { Header } from './components/Header'
 import { CampaignList } from './components/CampaignList'
 import { CampaignDetail } from './components/CampaignDetail'
 import { SessionView } from './components/SessionView'
+import ErrorBoundary from './components/ErrorBoundary'
+import ToastProvider from './components/ToastProvider'
 
 import './themes/base.css'
 import './themes/fantasy.css'
@@ -59,47 +61,51 @@ export default function App() {
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="app-root">
-      {view !== 'session' && <Header />}
+    <ErrorBoundary>
+      <div className="app-root">
+        {view !== 'session' && <Header />}
 
-      {view === 'session' && (
-        <div className="session-header-row">
-          <Header />
-        </div>
-      )}
+        {view === 'session' && (
+          <div className="session-header-row">
+            <Header />
+          </div>
+        )}
 
-      <main className="app-main">
-        {view === 'campaigns' && <CampaignList />}
-        {view === 'campaign_detail' && <CampaignDetail />}
-        {view === 'session' && <SessionView />}
-      </main>
+        <main className="app-main">
+          {view === 'campaigns' && <CampaignList />}
+          {view === 'campaign_detail' && <CampaignDetail />}
+          {view === 'session' && <SessionView />}
+        </main>
 
-      <style>{`
-        .app-root {
-          min-height: 100vh;
-          display: flex;
-          flex-direction: column;
-          background: var(--bg-primary);
-        }
+        <ToastProvider />
 
-        .app-main {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
-          min-height: 0;
-        }
+        <style>{`
+          .app-root {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-primary);
+          }
 
-        /* In session view, the session fills the height so give it full space */
-        .app-root:has(.session-view) .app-main {
-          height: calc(100vh - var(--header-height));
-        }
+          .app-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 0;
+          }
 
-        /* For browsers that don't support :has() */
-        .session-header-row {
-          flex-shrink: 0;
-        }
-      `}</style>
-    </div>
+          /* In session view, the session fills the height so give it full space */
+          .app-root:has(.session-view) .app-main {
+            height: calc(100vh - var(--header-height));
+          }
+
+          /* For browsers that don't support :has() */
+          .session-header-row {
+            flex-shrink: 0;
+          }
+        `}</style>
+      </div>
+    </ErrorBoundary>
   )
 }

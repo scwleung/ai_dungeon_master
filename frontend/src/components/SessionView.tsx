@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { useGameStore } from '../store/gameStore'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -25,6 +25,9 @@ import OOCChat from './OOCChat'
 import DMNotes from './DMNotes'
 import ReadAloud from './ReadAloud'
 import SpellReference from './SpellReference'
+import MagicItems from './MagicItems'
+import Equipment from './Equipment'
+import ToastProvider from './ToastProvider'
 
 /**
  * Root layout for an active play session.
@@ -90,6 +93,8 @@ export function SessionView() {
     messages,
     readyState,
     clearReadyState,
+    secretRolls,
+    addToast,
   } = useGameStore()
 
   const isDM = !!(activeCampaign && campaignTokens[activeCampaign.id])
@@ -119,6 +124,13 @@ export function SessionView() {
   const [showNameGen, setShowNameGen] = useState(false)
   const [nameGenRace, setNameGenRace] = useState('human')
   const [generatedNames, setGeneratedNames] = useState<string[]>([])
+  const [showMagicItems, setShowMagicItems] = useState(false)
+  const [showEquipment, setShowEquipment] = useState(false)
+  const [showSecretRolls, setShowSecretRolls] = useState(false)
+  const [sceneInput, setSceneInput] = useState('')
+  const [showSceneInput, setShowSceneInput] = useState(false)
+  const [secretDice, setSecretDice] = useState('1d20')
+  const [secretReason, setSecretReason] = useState('')
   const [showAddPin, setShowAddPin] = useState(false)
   const [pinInput, setPinInput] = useState('')
   const [endingSession, setEndingSession] = useState(false)
@@ -126,8 +138,10 @@ export function SessionView() {
   const [copiedInvite, setCopiedInvite] = useState(false)
   const [copiedSpectator, setCopiedSpectator] = useState(false)
 
-  const { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate, sendOOC, sendReadyCheck, sendReadyResponse } =
+  const { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate, sendOOC, sendReadyCheck, sendReadyResponse, sendSecretRoll, sendSceneMarker } =
     useWebSocket(activeSession?.id ?? null)
+
+  const sendingRef = useRef(false)
 
   // Auto-show dice camera and dice roller when a roll is pending
   useEffect(() => {
@@ -407,6 +421,18 @@ export function SessionView() {
             <button className="btn-ghost btn-sm" onClick={() => setShowNameGen(v => !v)}>🎲 Names</button>
           )}
           {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowMagicItems(true)}>💎 Magic Items</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowEquipment(true)}>⚔ Equipment</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowSceneInput(v => !v)}>🎬 Scene</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowSecretRolls(v => !v)}>🎲 Secret Roll</button>
+          )}
+          {isDM && !isSpectator && (
             <button
               className="btn-ghost btn-sm invite-btn"
               onClick={handleCopyInvite}
@@ -610,6 +636,43 @@ export function SessionView() {
               )}
             </div>
           )}
+          {/* Scene Marker input */}
+          {showSceneInput && isDM && !isSpectator && (
+            <div style={{ display: 'flex', gap: '0.5rem', padding: '0.25rem 0.5rem', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
+              <input
+                value={sceneInput} onChange={e => setSceneInput(e.target.value)}
+                placeholder="Scene title…"
+                onKeyDown={e => { if (e.key === 'Enter' && sceneInput.trim()) { sendSceneMarker(sceneInput.trim()); setSceneInput(''); setShowSceneInput(false) } }}
+                style={{ flex: 1, padding: '0.3rem', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text)', fontSize: '0.85rem' }}
+                autoFocus
+              />
+              <button onClick={() => { if (sceneInput.trim()) { sendSceneMarker(sceneInput.trim()); setSceneInput(''); setShowSceneInput(false) } }} className="btn-ghost btn-sm">Insert</button>
+              <button onClick={() => setShowSceneInput(false)} className="btn-ghost btn-sm">✕</button>
+            </div>
+          )}
+          {/* Secret Roll panel */}
+          {showSecretRolls && isDM && !isSpectator && (
+            <div style={{ padding: '0.75rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, marginBottom: '0.5rem', margin: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                <strong style={{ fontSize: '0.85rem' }}>🎲 Secret Roll</strong>
+                <button onClick={() => setShowSecretRolls(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)' }}>✕</button>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input value={secretDice} onChange={e => setSecretDice(e.target.value)} placeholder="1d20" style={{ width: 70, padding: '0.25rem', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text)', fontSize: '0.8rem' }} />
+                <input value={secretReason} onChange={e => setSecretReason(e.target.value)} placeholder="Reason (e.g. Perception)" style={{ flex: 1, padding: '0.25rem', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text)', fontSize: '0.8rem' }} />
+                <button onClick={() => sendSecretRoll(secretDice, secretReason)} className="btn-ghost btn-sm">Roll</button>
+              </div>
+              {secretRolls.length > 0 && (
+                <div style={{ marginTop: '0.5rem', maxHeight: 120, overflow: 'auto' }}>
+                  {secretRolls.map(r => (
+                    <div key={r.id} style={{ fontSize: '0.75rem', color: 'var(--color-muted)', padding: '0.1rem 0' }}>
+                      🎲 {r.dice}{r.reason ? ` (${r.reason})` : ''}: [{r.values.join(', ')}] = <strong>{r.total}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <NarrativeLog />
           {/* PTT recording indicator */}
           {recordingPlayers.size > 0 && (
@@ -630,7 +693,15 @@ export function SessionView() {
           )}
           {!isSpectator && (
             <PlayerInput
-              onSendAction={sendAction}
+              onSendAction={(text) => {
+                if (sendingRef.current) return
+                sendingRef.current = true
+                try {
+                  sendAction(text)
+                } finally {
+                  setTimeout(() => { sendingRef.current = false }, 500)
+                }
+              }}
               onSendVoiceTranscript={(transcript) => {
                 sendVoiceRecording(false)
                 sendVoiceTranscript(transcript)
@@ -834,8 +905,29 @@ export function SessionView() {
       {/* Spell Reference */}
       {showSpellRef && <SpellReference onClose={() => setShowSpellRef(false)} />}
 
+      {/* Magic Items panel */}
+      {showMagicItems && <MagicItems onClose={() => setShowMagicItems(false)} />}
+
+      {/* Equipment panel */}
+      {showEquipment && (
+        <Equipment
+          onAddToInventory={(item) => {
+            if (activeCampaign) {
+              const state = useGameStore.getState()
+              const { gold, items } = state.partyState
+              state.savePartyState(activeCampaign.id, { gold, items: [...items, item] })
+              addToast(`Added "${item}" to party inventory`, 'success')
+            }
+          }}
+          onClose={() => setShowEquipment(false)}
+        />
+      )}
+
       {/* DM Voice (hidden, auto-plays) */}
       <DMVoice />
+
+      {/* Toast notifications */}
+      <ToastProvider />
 
       <style>{`
         .session-view {

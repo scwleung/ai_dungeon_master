@@ -381,6 +381,33 @@ export function useWebSocket(sessionId: string | null) {
           s.setReadyResponse(msg.player_id, msg.ready)
           break
         }
+
+        case 'ping': {
+          // Respond with pong to keep connection alive
+          send({ type: 'pong' } as any)
+          break
+        }
+
+        case 'scene_marker': {
+          s.appendMessage({
+            id: `scene_${Date.now()}`,
+            role: 'system',
+            text: `🎬 SCENE: ${msg.title}`,
+            timestamp: new Date().toISOString(),
+          })
+          break
+        }
+
+        case 'secret_roll_result': {
+          s.addSecretRoll({
+            dice: msg.dice,
+            values: msg.values,
+            total: msg.total,
+            reason: msg.reason,
+          })
+          s.addToast(`🎲 Secret roll (${msg.reason || msg.dice}): ${msg.total}`, 'info', 4000)
+          break
+        }
       }
     }
   }, [sessionId])
@@ -479,5 +506,19 @@ export function useWebSocket(sessionId: string | null) {
     [send]
   )
 
-  return { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate, sendOOC, sendReadyCheck, sendReadyResponse }
+  const sendSecretRoll = useCallback(
+    (dice: string, reason: string) => {
+      send({ type: 'dm_secret_roll' as any, dice, reason } as any)
+    },
+    [send]
+  )
+
+  const sendSceneMarker = useCallback(
+    (title: string) => {
+      send({ type: 'scene_marker' as any, title } as any)
+    },
+    [send]
+  )
+
+  return { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate, sendOOC, sendReadyCheck, sendReadyResponse, sendSecretRoll, sendSceneMarker }
 }

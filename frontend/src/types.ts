@@ -85,6 +85,8 @@ export interface Character {
   spell_slots?: Record<string, { max: number; used: number }>
   /** Class resource state (Ki, Rage, Superiority Dice, etc.). */
   resources?: Record<string, { label: string; max: number; used: number }>
+  /** Total experience points accumulated by the character. */
+  xp?: number
 }
 
 /** Shape required to create a new character (id and campaign_id are assigned by the server). */

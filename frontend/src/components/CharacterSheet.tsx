@@ -1,10 +1,26 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import type { Character } from '../types'
 
 interface Props {
   character: Character
   onUpdate: (id: string, updates: Partial<Character>) => void
+  onSendAction?: (text: string) => void
+}
+
+// D&D 5e XP thresholds for levels 1–20 (index = level - 1)
+const XP_THRESHOLDS = [
+  0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000,
+  85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000,
+]
+
+function getLevel(xp: number): number {
+  let level = 1
+  for (let i = 1; i < XP_THRESHOLDS.length; i++) {
+    if (xp >= XP_THRESHOLDS[i]) level = i + 1
+    else break
+  }
+  return level
 }
 
 const STAT_KEYS: (keyof Character['stats'])[] = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA']
@@ -47,8 +63,9 @@ function Section({
  * @param onUpdate - Callback invoked with the character ID and a partial update object
  *                   whenever the user makes a change; typically wraps `updateCharacter`
  *                   from the Zustand store.
+ * @param onSendAction - Optional callback to send a player action text to the DM.
  */
-export function CharacterSheet({ character, onUpdate }: Props) {
+export function CharacterSheet({ character, onUpdate, onSendAction }: Props) {
   const { updateCharacter } = useGameStore()
   const [newItem, setNewItem] = useState('')
   const [newCondition, setNewCondition] = useState('')
@@ -56,6 +73,25 @@ export function CharacterSheet({ character, onUpdate }: Props) {
   const [hpDraft, setHpDraft] = useState(character.hp_current)
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesDraft, setNotesDraft] = useState(character.notes)
+  const [levelUpAlert, setLevelUpAlert] = useState(false)
+  const prevXpRef = useRef(character.xp ?? 0)
+
+  // Detect level-up when XP changes
+  useEffect(() => {
+    const prevXp = prevXpRef.current
+    const currXp = character.xp ?? 0
+    if (currXp > prevXp) {
+      const prevLevel = getLevel(prevXp)
+      const currLevel = getLevel(currXp)
+      if (currLevel > prevLevel) {
+        setLevelUpAlert(true)
+        const t = setTimeout(() => setLevelUpAlert(false), 4000)
+        prevXpRef.current = currXp
+        return () => clearTimeout(t)
+      }
+    }
+    prevXpRef.current = currXp
+  }, [character.xp])
 
   const hpPct =
     character.hp_max > 0 ? (character.hp_current / character.hp_max) * 100 : 0
@@ -103,8 +139,27 @@ export function CharacterSheet({ character, onUpdate }: Props) {
     setEditingNotes(false)
   }
 
+  // XP calculations
+  const xp = character.xp ?? 0
+  const xpLevel = getLevel(xp)
+  const xpLevelIdx = Math.min(xpLevel - 1, 19)
+  const xpNextIdx = Math.min(xpLevel, 19)
+  const xpForCurrentLevel = XP_THRESHOLDS[xpLevelIdx]
+  const xpForNextLevel = xpLevel < 20 ? XP_THRESHOLDS[xpNextIdx] : null
+  const xpProgress =
+    xpForNextLevel !== null && xpForNextLevel > xpForCurrentLevel
+      ? ((xp - xpForCurrentLevel) / (xpForNextLevel - xpForCurrentLevel)) * 100
+      : 100
+
   return (
     <div className="character-sheet">
+      {/* Level Up Alert */}
+      {levelUpAlert && (
+        <div className="cs-levelup-alert">
+          ⬆ Level Up! You&apos;ve reached level {xpLevel}.
+        </div>
+      )}
+
       {/* Header */}
       <div className="cs-header">
         <div className="cs-name-row">
@@ -197,6 +252,28 @@ export function CharacterSheet({ character, onUpdate }: Props) {
             </button>
           </div>
         </div>
+
+        {/* XP Bar */}
+        {character.xp !== undefined && (
+          <div className="cs-xp-section">
+            <div className="cs-xp-label">
+              <span>XP</span>
+              <span className="cs-xp-value">
+                {xp.toLocaleString()}
+                {xpForNextLevel !== null ? ` / ${xpForNextLevel.toLocaleString()}` : ' (Max)'}
+              </span>
+            </div>
+            <div className="xp-bar-wrapper">
+              <div
+                className="xp-bar-fill"
+                style={{ width: `${Math.max(0, Math.min(100, xpProgress))}%` }}
+              />
+            </div>
+            <div className="cs-xp-sublabel">
+              Level {xpLevel}{xpForNextLevel !== null ? ` → ${xpLevel + 1}` : ' (Max)'}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="cs-body">
@@ -287,6 +364,28 @@ export function CharacterSheet({ character, onUpdate }: Props) {
               +
             </button>
           </form>
+        </Section>
+
+        {/* Rests */}
+        <Section title="Rests" defaultOpen={false}>
+          <div className="rests-row">
+            <button
+              className="btn-ghost btn-sm rest-btn"
+              disabled={!onSendAction}
+              onClick={() => onSendAction?.("I'd like to take a short rest to recover.")}
+              title={onSendAction ? 'Take a short rest' : 'No action handler available'}
+            >
+              Short Rest
+            </button>
+            <button
+              className="btn-ghost btn-sm rest-btn"
+              disabled={!onSendAction}
+              onClick={() => onSendAction?.("I'd like to take a long rest.")}
+              title={onSendAction ? 'Take a long rest' : 'No action handler available'}
+            >
+              Long Rest
+            </button>
+          </div>
         </Section>
 
         {/* Spell Slots */}
@@ -812,6 +911,80 @@ export function CharacterSheet({ character, onUpdate }: Props) {
           font-family: var(--font-mono);
           min-width: 28px;
           text-align: right;
+        }
+
+        /* Level-up alert */
+        .cs-levelup-alert {
+          background: var(--accent-success, #2d6e2d);
+          color: #fff;
+          font-weight: 700;
+          font-size: var(--font-size-sm);
+          padding: var(--space-2) var(--space-4);
+          text-align: center;
+          flex-shrink: 0;
+          animation: fadeInDown 0.3s ease;
+        }
+
+        @keyframes fadeInDown {
+          from { opacity: 0; transform: translateY(-8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* XP section */
+        .cs-xp-section {
+          margin-top: var(--space-3);
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-1);
+        }
+
+        .cs-xp-label {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: var(--font-size-xs);
+          color: var(--text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          font-weight: 700;
+        }
+
+        .cs-xp-value {
+          font-family: var(--font-mono);
+          color: var(--text-secondary);
+          font-size: var(--font-size-xs);
+          text-transform: none;
+          letter-spacing: 0;
+        }
+
+        .xp-bar-wrapper {
+          height: 4px;
+          background: var(--bg-primary);
+          border-radius: 2px;
+          overflow: hidden;
+        }
+
+        .xp-bar-fill {
+          height: 100%;
+          background: var(--accent);
+          border-radius: 2px;
+          transition: width 0.4s ease;
+        }
+
+        .cs-xp-sublabel {
+          font-size: var(--font-size-xs);
+          color: var(--text-muted);
+          font-style: italic;
+        }
+
+        /* Rest buttons */
+        .rests-row {
+          display: flex;
+          gap: var(--space-2);
+        }
+
+        .rest-btn {
+          flex: 1;
         }
       `}</style>
     </div>

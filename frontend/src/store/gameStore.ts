@@ -462,4 +462,38 @@ export const useGameStore = create<GameStore>((set, get) => ({
       view: 'session',
     })
   },
+
+  // Party state
+  partyState: { gold: 0, items: [] },
+  loadPartyState: async (campaignId) => {
+    try {
+      const res = await api.party.get(campaignId)
+      set({ partyState: { gold: res.gold, items: res.items } })
+    } catch {
+      // ignore — party state may not exist yet
+    }
+  },
+  setPartyState: (state) => set({ partyState: state }),
+  savePartyState: async (campaignId, state) => {
+    const tokens = get().campaignTokens
+    const accessCode = tokens[campaignId] ?? ''
+    set({ partyState: state })
+    await api.party.update(campaignId, state, accessCode)
+  },
+
+  // Pinned notes
+  pinnedNotes: [],
+  loadPinnedNotes: async (sessionId) => {
+    try {
+      const res = await api.pins.get(sessionId)
+      set({ pinnedNotes: res.pins })
+    } catch {
+      // ignore — pins may not exist yet
+    }
+  },
+  setPinnedNotes: (pins) => set({ pinnedNotes: pins }),
+  savePinnedNotes: async (sessionId, pins) => {
+    set({ pinnedNotes: pins })
+    await api.pins.update(sessionId, pins)
+  },
 }))

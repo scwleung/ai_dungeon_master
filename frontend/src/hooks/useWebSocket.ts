@@ -297,6 +297,16 @@ export function useWebSocket(sessionId: string | null) {
           s.setSceneImage({ url: msg.url, description: msg.description })
           break
         }
+
+        case 'party_update': {
+          s.setPartyState({ gold: msg.gold, items: msg.items })
+          break
+        }
+
+        case 'pinned_update': {
+          s.setPinnedNotes(msg.pins)
+          break
+        }
       }
     }
   }, [sessionId])

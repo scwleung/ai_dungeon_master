@@ -29,6 +29,9 @@ DM tools available to Claude during narration:
     upsert_npc           — Adds or updates an NPC record (name, faction, attitude,
                            location, notes); broadcasts `npc_update`.
 
+  Party state:
+    update_party_state   — Updates party gold and shared inventory; broadcasts party_update.
+
   Scene illustration:
     generate_scene_image — Calls DALL-E 3 to produce an atmospheric image for
                            the current scene; broadcasts `scene_image`.
@@ -365,6 +368,32 @@ TOOLS: list[dict] = [
                 "description": {"type": "string", "description": "What the quest involves and its current state"},
             },
             "required": ["quest_id", "name", "status"],
+        },
+    },
+    {
+        "name": "update_party_state",
+        "description": (
+            "Update the party's shared gold treasury and group inventory. "
+            "Use when the party finds treasure, buys or sells items, or spends gold."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "gold_delta": {
+                    "type": "integer",
+                    "description": "Change in gold (positive = gain, negative = spend). Omit if unchanged.",
+                },
+                "add_items": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Items to add to the party's shared inventory.",
+                },
+                "remove_items": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Items to remove from the party's shared inventory.",
+                },
+            },
         },
     },
     {

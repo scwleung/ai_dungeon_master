@@ -47,6 +47,7 @@ from backend.models.campaign import (
 )
 from backend.models.character import Character
 from backend.services.map_generator import generate_dungeon
+from backend.ws.session_hub import session_hub
 
 router = APIRouter()
 
@@ -395,3 +396,210 @@ async def end_session(
         await db.flush()
 
     return SessionResponse.model_validate(session)
+
+
+@router.get("/sessions/{session_id}/pins")
+async def get_session_pins(session_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the pinned notes for a session."""
+    result = await db.execute(select(GameSession).where(GameSession.id == session_id))
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    pins = json.loads(session.pinned_notes) if session.pinned_notes else []
+    return {"session_id": session_id, "pins": pins}
+
+
+class PinEntry(BaseModel):
+    id: str
+    text: str
+
+
+class PinsUpdate(BaseModel):
+    pins: list[PinEntry] = []
+
+
+@router.put("/sessions/{session_id}/pins")
+async def update_session_pins(
+    session_id: str,
+    payload: PinsUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the pinned notes for a session and broadcast to all players."""
+    result = await db.execute(select(GameSession).where(GameSession.id == session_id))
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    pins_data = [{"id": p.id, "text": p.text} for p in payload.pins]
+    session.pinned_notes = json.dumps(pins_data)
+    db.add(session)
+    await db.commit()
+    await session_hub.broadcast(session_id, {"type": "pinned_update", "pins": pins_data})
+    return {"session_id": session_id, "pins": pins_data}
+
+
+@router.get("/{campaign_id}/export")
+async def export_campaign(
+    campaign_id: str,
+    campaign: Campaign = Depends(require_campaign_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download a full campaign bundle (campaign, characters, sessions) as JSON."""
+    chars_result = await db.execute(select(Character).where(Character.campaign_id == campaign_id))
+    characters = chars_result.scalars().all()
+
+    sessions_result = await db.execute(select(GameSession).where(GameSession.campaign_id == campaign_id))
+    sessions = sessions_result.scalars().all()
+
+    def _json(s):
+        try:
+            return json.loads(s) if s else None
+        except Exception:
+            return None
+
+    return {
+        "version": 1,
+        "campaign": {
+            "name": campaign.name,
+            "ruleset": campaign.ruleset,
+            "description": campaign.description,
+            "world_state": _json(campaign.world_state) or {},
+            "npcs": _json(campaign.npcs) or [],
+            "quests": _json(campaign.quests) or [],
+            "party_state": _json(campaign.party_state) or {"gold": 0, "items": []},
+        },
+        "characters": [
+            {
+                "player_name": c.player_name,
+                "name": c.name,
+                "race": c.race,
+                "class_name": c.class_name,
+                "level": c.level,
+                "hp_current": c.hp_current,
+                "hp_max": c.hp_max,
+                "stats": _json(c.stats) or {},
+                "inventory": _json(c.inventory) or [],
+                "conditions": _json(c.conditions) or [],
+                "notes": c.notes,
+                "spell_slots": _json(c.spell_slots),
+                "resources": _json(c.resources),
+            }
+            for c in characters
+        ],
+        "sessions": [
+            {
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "ended_at": s.ended_at.isoformat() if s.ended_at else None,
+                "session_summary": s.session_summary,
+            }
+            for s in sessions
+        ],
+    }
+
+
+class CampaignImportPayload(BaseModel):
+    version: int = 1
+    campaign: dict
+    characters: list[dict] = []
+    sessions: list[dict] = []
+
+
+@router.post("/import")
+async def import_campaign(
+    payload: CampaignImportPayload,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new campaign from an exported bundle. Returns the new campaign with its access code."""
+    import secrets as _secrets
+    new_id = str(uuid.uuid4())
+    camp_data = payload.campaign
+    new_campaign = Campaign(
+        id=new_id,
+        name=camp_data.get("name", "Imported Campaign"),
+        ruleset=camp_data.get("ruleset", "dnd5e"),
+        description=camp_data.get("description", ""),
+        access_code=_secrets.token_urlsafe(16),
+        world_state=json.dumps(camp_data.get("world_state") or {}),
+        npcs=json.dumps(camp_data.get("npcs") or []),
+        quests=json.dumps(camp_data.get("quests") or []),
+        party_state=json.dumps(camp_data.get("party_state") or {"gold": 0, "items": []}),
+    )
+    db.add(new_campaign)
+    await db.flush()
+
+    for char_data in payload.characters:
+        char = Character(
+            id=str(uuid.uuid4()),
+            campaign_id=new_id,
+            player_name=char_data.get("player_name", ""),
+            name=char_data.get("name", ""),
+            race=char_data.get("race", ""),
+            class_name=char_data.get("class_name", ""),
+            level=char_data.get("level", 1),
+            hp_current=char_data.get("hp_current", 10),
+            hp_max=char_data.get("hp_max", 10),
+            stats=json.dumps(char_data.get("stats") or {}),
+            inventory=json.dumps(char_data.get("inventory") or []),
+            conditions=json.dumps(char_data.get("conditions") or []),
+            notes=char_data.get("notes"),
+            spell_slots=json.dumps(char_data["spell_slots"]) if char_data.get("spell_slots") else None,
+            resources=json.dumps(char_data["resources"]) if char_data.get("resources") else None,
+        )
+        db.add(char)
+
+    await db.commit()
+    await db.refresh(new_campaign)
+    return {
+        "id": new_campaign.id,
+        "name": new_campaign.name,
+        "ruleset": new_campaign.ruleset,
+        "description": new_campaign.description,
+        "access_code": new_campaign.access_code,
+        "created_at": new_campaign.created_at.isoformat(),
+    }
+
+
+@router.post("/{campaign_id}/rotate-access-code")
+async def rotate_access_code(
+    campaign_id: str,
+    campaign: Campaign = Depends(require_campaign_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a new access code for the campaign. Old code immediately becomes invalid."""
+    import secrets as _secrets
+    campaign.access_code = _secrets.token_urlsafe(16)
+    db.add(campaign)
+    await db.commit()
+    return {"campaign_id": campaign_id, "access_code": campaign.access_code}
+
+
+class PartyStateUpdate(BaseModel):
+    gold: int = 0
+    items: list[str] = []
+
+
+@router.get("/{campaign_id}/party")
+async def get_party_state(
+    campaign_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the party's shared gold and inventory."""
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    state = json.loads(campaign.party_state) if campaign.party_state else {"gold": 0, "items": []}
+    return {"campaign_id": campaign_id, **state}
+
+
+@router.put("/{campaign_id}/party")
+async def update_party_state(
+    campaign_id: str,
+    payload: PartyStateUpdate,
+    campaign: Campaign = Depends(require_campaign_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the party's shared gold and inventory."""
+    campaign.party_state = json.dumps({"gold": payload.gold, "items": payload.items})
+    db.add(campaign)
+    await db.commit()
+    return {"campaign_id": campaign_id, "gold": payload.gold, "items": payload.items}

@@ -257,6 +257,14 @@ TOOLS: list[dict] = [
                 "death_saves": {"type": "object", "description": "Death saving throw state: {successes: 0-3, failures: 0-3}."},
                 "concentration": {"type": ["string", "null"], "description": "Spell name the character is concentrating on, or null to clear."},
                 "inspiration": {"type": "boolean", "description": "Award (true) or remove (false) inspiration for this character."},
+                "hit_dice_remaining": {
+                    "type": "integer",
+                    "description": "Number of hit dice remaining (decremented when used during short rest).",
+                },
+                "exhaustion": {
+                    "type": "integer",
+                    "description": "Exhaustion level 0-6 (0 = none, 6 = death).",
+                },
             },
             "required": ["character_id"],
         },

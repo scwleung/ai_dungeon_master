@@ -85,6 +85,8 @@ class Character(Base):
     currency: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     spellbook: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     audit_log: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    hit_dice_remaining: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    exhaustion: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="characters")  # type: ignore[name-defined]
 
@@ -150,6 +152,8 @@ class CharacterResponse(BaseModel):
     currency: Optional[Dict[str, int]] = None   # {"gp": 0, "sp": 0, "cp": 0, "ep": 0, "pp": 0}
     spellbook: Optional[list] = None            # list of {"name": str, "level": int, "prepared": bool}
     audit_log: Optional[list] = None            # read-only, list of {"timestamp": str, "change": str}
+    hit_dice_remaining: Optional[int] = None
+    exhaustion: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -191,6 +195,8 @@ class CharacterResponse(BaseModel):
                 "currency": safe_json(getattr(obj, "currency", None), None),
                 "spellbook": safe_json(getattr(obj, "spellbook", None), None),
                 "audit_log": safe_json(getattr(obj, "audit_log", None), None),
+                "hit_dice_remaining": getattr(obj, "hit_dice_remaining", None),
+                "exhaustion": int(getattr(obj, "exhaustion", 0) or 0),
             }
         if isinstance(values, dict):
 
@@ -236,3 +242,5 @@ class CharacterUpdate(BaseModel):
     inspiration: Optional[bool] = None
     currency: Optional[Dict[str, int]] = None
     spellbook: Optional[list] = None
+    hit_dice_remaining: Optional[int] = None
+    exhaustion: Optional[int] = None

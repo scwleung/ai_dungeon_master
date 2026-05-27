@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import random
 import uuid
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
@@ -105,6 +106,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE characters ADD COLUMN audit_log TEXT",
             "ALTER TABLE sessions ADD COLUMN dm_notes TEXT",
             "ALTER TABLE campaigns ADD COLUMN readalouds TEXT",
+            "ALTER TABLE characters ADD COLUMN hit_dice_remaining INTEGER",
+            "ALTER TABLE characters ADD COLUMN exhaustion INTEGER DEFAULT 0",
         ]:
             try:
                 await db.execute(text(col_sql))
@@ -155,6 +158,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+@app.get("/health", tags=["meta"])
+async def health_check():
+    """Lightweight liveness probe for load balancers and Docker health checks."""
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception:
+        db_status = "error"
+    return {"status": "ok" if db_status == "ok" else "degraded", "db": db_status}
+
 
 # ---------------------------------------------------------------------------
 # REST routers
@@ -515,6 +534,18 @@ async def _update_character_in_db(character_id: str, tool_input: dict) -> str:
             char.spellbook = json.dumps(tool_input["spellbook"])
             changes.append(f"Updated spellbook for {char.name}")
 
+        if "hit_dice_remaining" in tool_input:
+            char.hit_dice_remaining = tool_input["hit_dice_remaining"]
+            changes.append(f"Updated hit dice for {char.name}")
+
+        if "exhaustion" in tool_input:
+            old = int(char.exhaustion or 0)
+            char.exhaustion = max(0, min(6, int(tool_input["exhaustion"])))
+            if char.exhaustion > old:
+                changes.append(f"{char.name} exhaustion increased to level {char.exhaustion}")
+            elif char.exhaustion < old:
+                changes.append(f"{char.name} exhaustion reduced to level {char.exhaustion}")
+
         # Append audit log entry
         if changes:
             try:
@@ -671,6 +702,16 @@ async def _update_world_state_in_db(campaign_id: str, updates: dict) -> str:
 
     keys_updated = ", ".join(updates.keys())
     return f"World state updated: {keys_updated}"
+
+
+async def _ws_keepalive(ws: WebSocket, interval: int = 30) -> None:
+    """Send periodic application-level ping to keep WebSocket proxies from timing out."""
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            await ws.send_json({"type": "ping"})
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -946,6 +987,7 @@ async def websocket_endpoint(
     # Main message loop
     # ----------------------------------------------------------------
 
+    keepalive_task = asyncio.create_task(_ws_keepalive(ws))
     try:
         while True:
             try:
@@ -1272,6 +1314,46 @@ async def websocket_endpoint(
                     },
                 )
 
+            elif msg_type == "pong":
+                pass  # keepalive response; no action needed
+
+            elif msg_type == "dm_secret_roll":
+                # DM-only: roll dice server-side, result sent only to the requesting socket
+                if not is_spectator_conn:
+                    import re as _re
+                    dice_str = data.get("dice", "1d20")
+                    reason = data.get("reason", "")
+                    match = _re.match(r"^(\d+)d(\d+)([+-]\d+)?$", dice_str.lower().strip())
+                    if match:
+                        count = int(match.group(1))
+                        sides = int(match.group(2))
+                        mod = int(match.group(3) or 0)
+                        values = [random.randint(1, sides) for _ in range(min(count, 20))]
+                        total = sum(values) + mod
+                    else:
+                        values = [random.randint(1, 20)]
+                        total = values[0]
+                        mod = 0
+                    await session_hub.send_to_socket(ws, {
+                        "type": "secret_roll_result",
+                        "dice": dice_str,
+                        "values": values,
+                        "total": total,
+                        "modifier": mod,
+                        "reason": reason,
+                    })
+
+            elif msg_type == "scene_marker":
+                # DM inserts a named scene break into the narrative log
+                if not is_spectator_conn:
+                    title = data.get("title", "New Scene")
+                    marker_text = f"🎬 SCENE: {title}"
+                    await session_hub.broadcast(session_id, {
+                        "type": "scene_marker",
+                        "title": title,
+                    })
+                    await _save_message_to_db(session_id, "system", marker_text)
+
             else:
                 # Unknown message type — silently ignore to keep the connection alive
                 pass
@@ -1287,6 +1369,7 @@ async def websocket_endpoint(
         except Exception:
             pass
     finally:
+        keepalive_task.cancel()
         info = session_hub.disconnect(ws)
         if info:
             disconnected_session_id, disconnected_player_id = info

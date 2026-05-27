@@ -78,6 +78,10 @@ class Character(Base):
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     spell_slots: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     resources: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    xp: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    death_saves: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    concentration: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    inspiration: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="characters")  # type: ignore[name-defined]
 
@@ -136,6 +140,10 @@ class CharacterResponse(BaseModel):
     notes: str
     spell_slots: Optional[Dict[str, Any]] = None
     resources: Optional[Dict[str, Any]] = None
+    xp: Optional[int] = None
+    death_saves: Optional[Dict[str, int]] = None
+    concentration: Optional[str] = None
+    inspiration: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -170,6 +178,10 @@ class CharacterResponse(BaseModel):
                 "notes": obj.notes,
                 "spell_slots": safe_json(getattr(obj, "spell_slots", None), None),
                 "resources": safe_json(getattr(obj, "resources", None), None),
+                "xp": getattr(obj, "xp", None),
+                "death_saves": safe_json(getattr(obj, "death_saves", None), None),
+                "concentration": getattr(obj, "concentration", None),
+                "inspiration": bool(getattr(obj, "inspiration", 0) or 0),
             }
         if isinstance(values, dict):
 
@@ -183,7 +195,7 @@ class CharacterResponse(BaseModel):
 
             for field, default in [("stats", {}), ("inventory", []), ("conditions", [])]:
                 values[field] = safe_json(values.get(field), default)
-            for field in ("spell_slots", "resources"):
+            for field in ("spell_slots", "resources", "death_saves"):
                 if field in values:
                     values[field] = safe_json(values.get(field), None)
         return values
@@ -209,3 +221,7 @@ class CharacterUpdate(BaseModel):
     notes: Optional[str] = None
     spell_slots: Optional[Dict[str, Any]] = None
     resources: Optional[Dict[str, Any]] = None
+    xp: Optional[int] = None
+    death_saves: Optional[Dict[str, int]] = None
+    concentration: Optional[str] = None
+    inspiration: Optional[bool] = None

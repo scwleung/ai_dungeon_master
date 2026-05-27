@@ -92,6 +92,11 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE sessions ADD COLUMN notes TEXT",
             "ALTER TABLE campaigns ADD COLUMN party_state TEXT",
             "ALTER TABLE sessions ADD COLUMN pinned_notes TEXT",
+            "ALTER TABLE characters ADD COLUMN xp INTEGER",
+            "ALTER TABLE characters ADD COLUMN death_saves TEXT",
+            "ALTER TABLE characters ADD COLUMN concentration TEXT",
+            "ALTER TABLE characters ADD COLUMN inspiration INTEGER DEFAULT 0",
+            "ALTER TABLE campaigns ADD COLUMN map_annotations TEXT",
         ]:
             try:
                 await db.execute(text(col_sql))
@@ -469,6 +474,30 @@ async def _update_character_in_db(character_id: str, tool_input: dict) -> str:
         if "resources" in tool_input:
             char.resources = json.dumps(tool_input["resources"])
             changes.append(f"Updated resources for {char.name}")
+
+        # XP
+        if "xp" in tool_input:
+            char.xp = tool_input["xp"]
+            changes.append(f"Updated XP for {char.name}")
+
+        # Death saves
+        if "death_saves" in tool_input:
+            char.death_saves = json.dumps(tool_input["death_saves"])
+            changes.append(f"Updated death saves for {char.name}")
+
+        # Concentration
+        if "concentration" in tool_input:
+            char.concentration = tool_input["concentration"]  # str or None
+            if tool_input["concentration"]:
+                changes.append(f"{char.name} is concentrating on {tool_input['concentration']}")
+            else:
+                changes.append(f"{char.name} broke concentration")
+
+        # Inspiration
+        if "inspiration" in tool_input:
+            char.inspiration = 1 if tool_input["inspiration"] else 0
+            status = "gained" if tool_input["inspiration"] else "spent"
+            changes.append(f"{char.name} {status} inspiration")
 
         await db.commit()
 
@@ -931,6 +960,24 @@ async def websocket_endpoint(
                     exclude_ws=ws,
                 )
 
+                # Check if this is a fresh session with a prior session summary (recap)
+                async with AsyncSessionLocal() as recap_db:
+                    sess_result = await recap_db.execute(
+                        select(GameSession).where(GameSession.id == session_id)
+                    )
+                    sess_obj = sess_result.scalar_one_or_none()
+                    if sess_obj:
+                        try:
+                            existing_msgs = json.loads(sess_obj.messages or "[]")
+                        except Exception:
+                            existing_msgs = []
+                        # Fresh session (no messages yet) and has a prior session summary
+                        if not existing_msgs and sess_obj.session_summary and not is_spectator_conn:
+                            await session_hub.send_to_socket(ws, {
+                                "type": "system",
+                                "text": f"📜 Previously in your adventure: {sess_obj.session_summary}",
+                            })
+
             # ------------------------------------------------------------
             # player_action or voice_transcript → run DM brain
             # ------------------------------------------------------------
@@ -1129,6 +1176,30 @@ async def websocket_endpoint(
                             "modifier": modifier,
                             "roll_request_id": roll_request_id,
                         }
+                    )
+
+            elif msg_type == "voice_recording":
+                # Relay recording state to all other clients in the room
+                if not is_spectator_conn:
+                    await session_hub.broadcast(
+                        session_id,
+                        {
+                            "type": "voice_recording",
+                            "player_id": data.get("player_id", player_id),
+                            "active": bool(data.get("active", False)),
+                        },
+                        exclude_ws=ws,
+                    )
+
+            elif msg_type == "ambient_update":
+                # DM broadcasts ambient sound selection to all clients
+                if not is_spectator_conn:
+                    await session_hub.broadcast(
+                        session_id,
+                        {
+                            "type": "ambient_update",
+                            "sound": data.get("sound", "none"),
+                        },
                     )
 
             else:

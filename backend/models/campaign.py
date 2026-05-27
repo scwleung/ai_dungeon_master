@@ -72,6 +72,7 @@ class Campaign(Base):
     npcs: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     quests: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     party_state: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    map_annotations: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     characters: Mapped[list["Character"]] = relationship(  # type: ignore[name-defined]
         "Character",

@@ -310,6 +310,50 @@ async def generate_map(
     return {"campaign_id": campaign_id, "map_data": map_dict}
 
 
+@router.get("/{campaign_id}/map/annotations")
+async def get_map_annotations(campaign_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the campaign's map annotation pins."""
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id!r} not found")
+    annotations = json.loads(campaign.map_annotations or "[]")
+    return {"campaign_id": campaign_id, "annotations": annotations}
+
+
+class AnnotationsUpdate(BaseModel):
+    annotations: list[dict]
+
+
+@router.put("/{campaign_id}/map/annotations")
+async def update_map_annotations(
+    campaign_id: str,
+    payload: AnnotationsUpdate,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
+    """Persist map annotation pins and broadcast to active session clients."""
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if campaign is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id!r} not found")
+    campaign.map_annotations = json.dumps(payload.annotations)
+    await db.flush()
+    # Broadcast to all active (non-ended) sessions for this campaign
+    active_sessions_result = await db.execute(
+        select(GameSession).where(
+            GameSession.campaign_id == campaign_id,
+            GameSession.ended_at.is_(None),
+        )
+    )
+    for sess in active_sessions_result.scalars().all():
+        await session_hub.broadcast(sess.id, {
+            "type": "map_annotation_update",
+            "annotations": payload.annotations,
+        })
+    return {"campaign_id": campaign_id, "annotations": payload.annotations}
+
+
 @router.get("/{campaign_id}/npcs")
 async def list_npcs(campaign_id: str, db: AsyncSession = Depends(get_db)):
     """Return the NPC registry for a campaign."""

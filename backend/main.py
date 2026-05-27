@@ -108,6 +108,14 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE campaigns ADD COLUMN readalouds TEXT",
             "ALTER TABLE characters ADD COLUMN hit_dice_remaining INTEGER",
             "ALTER TABLE characters ADD COLUMN exhaustion INTEGER DEFAULT 0",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS bonds TEXT",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS ideals TEXT",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS flaws TEXT",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS personality TEXT",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS languages TEXT DEFAULT '[]'",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS tool_proficiencies TEXT DEFAULT '[]'",
+            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS features TEXT DEFAULT '[]'",
+            "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS random_tables TEXT DEFAULT '[]'",
         ]:
             try:
                 await db.execute(text(col_sql))
@@ -545,6 +553,38 @@ async def _update_character_in_db(character_id: str, tool_input: dict) -> str:
                 changes.append(f"{char.name} exhaustion increased to level {char.exhaustion}")
             elif char.exhaustion < old:
                 changes.append(f"{char.name} exhaustion reduced to level {char.exhaustion}")
+
+        def _safe_json(raw, default):
+            if isinstance(raw, str):
+                try:
+                    return json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    return default
+            return raw if raw is not None else default
+
+        if "bonds" in tool_input:
+            char.bonds = tool_input["bonds"]
+        if "ideals" in tool_input:
+            char.ideals = tool_input["ideals"]
+        if "flaws" in tool_input:
+            char.flaws = tool_input["flaws"]
+        if "personality" in tool_input:
+            char.personality = tool_input["personality"]
+        if "languages" in tool_input:
+            char.languages = json.dumps(tool_input["languages"])
+        if "tool_proficiencies" in tool_input:
+            char.tool_proficiencies = json.dumps(tool_input["tool_proficiencies"])
+        if "features" in tool_input:
+            char.features = json.dumps(tool_input["features"])
+        if "feature_use" in tool_input:
+            feature_id = tool_input["feature_use"].get("feature_id")
+            delta = int(tool_input["feature_use"].get("delta", -1))
+            feats = _safe_json(char.features, [])
+            for f in feats:
+                if f.get("id") == feature_id:
+                    new_uses = max(0, f.get("uses_remaining", 0) + delta)
+                    f["uses_remaining"] = new_uses
+            char.features = json.dumps(feats)
 
         # Append audit log entry
         if changes:
@@ -1353,6 +1393,35 @@ async def websocket_endpoint(
                         "title": title,
                     })
                     await _save_message_to_db(session_id, "system", marker_text)
+
+            elif msg_type == "combat_use_reaction":
+                c_name = data.get("name")
+                state = game_state_manager.get_combat(session_id)
+                if state and state.active:
+                    for c in state.combatants:
+                        if c.name == c_name:
+                            c.reaction_used = True
+                    await session_hub.broadcast(session_id, {**state.to_dict(), "type": "combat_update"})
+
+            elif msg_type == "combat_reset_reactions":
+                state = game_state_manager.get_combat(session_id)
+                if state and state.active:
+                    for c in state.combatants:
+                        c.reaction_used = False
+                    await session_hub.broadcast(session_id, {**state.to_dict(), "type": "combat_update"})
+
+            elif msg_type == "combat_legendary_action":
+                c_name = data.get("name")
+                delta = int(data.get("delta", -1))
+                state = game_state_manager.get_combat(session_id)
+                if state and state.active:
+                    for c in state.combatants:
+                        if c.name == c_name:
+                            c.legendary_actions_remaining = max(
+                                0,
+                                min(c.legendary_actions_max, c.legendary_actions_remaining + delta),
+                            )
+                    await session_hub.broadcast(session_id, {**state.to_dict(), "type": "combat_update"})
 
             else:
                 # Unknown message type — silently ignore to keep the connection alive

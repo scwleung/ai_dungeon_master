@@ -77,6 +77,7 @@ class Campaign(Base):
     handouts: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     timeline: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     readalouds: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    random_tables: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
 
     characters: Mapped[list["Character"]] = relationship(  # type: ignore[name-defined]
         "Character",

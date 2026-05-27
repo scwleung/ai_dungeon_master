@@ -36,6 +36,9 @@ class Combatant:
     is_player: bool = False
     character_id: Optional[str] = None
     conditions: list[str] = field(default_factory=list)
+    legendary_actions_remaining: int = 0
+    legendary_actions_max: int = 0
+    reaction_used: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -46,6 +49,9 @@ class Combatant:
             "is_player": self.is_player,
             "character_id": self.character_id,
             "conditions": list(self.conditions),
+            "legendary_actions_remaining": self.legendary_actions_remaining,
+            "legendary_actions_max": self.legendary_actions_max,
+            "reaction_used": self.reaction_used,
         }
 
 
@@ -227,6 +233,8 @@ class GameStateManager:
                     is_player=bool(c.get("is_player", False)),
                     character_id=c.get("character_id"),
                     conditions=list(c.get("conditions", [])),
+                    legendary_actions_max=c.get("legendary_actions_max", 0),
+                    legendary_actions_remaining=c.get("legendary_actions_max", 0),
                 )
                 for c in combatants_data
             ],

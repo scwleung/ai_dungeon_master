@@ -977,3 +977,113 @@ async def generate_npc_names(campaign_id: str, payload: NameGenRequest):
         pass
     names = [ln.strip().lstrip("0123456789.-) \"'") for ln in text.split("\n") if ln.strip()]
     return {"campaign_id": campaign_id, "names": [n for n in names if n][:payload.count]}
+
+
+# ---------------------------------------------------------------------------
+# Random tables endpoints
+# ---------------------------------------------------------------------------
+
+
+def _safe_json(raw, default):
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return default
+    return raw if raw is not None else default
+
+
+@router.get("/{campaign_id}/tables")
+async def get_tables(campaign_id: str, db: AsyncSession = Depends(get_db)):
+    """Return all random tables for a campaign."""
+    campaign = await db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return _safe_json(getattr(campaign, "random_tables", None), [])
+
+
+@router.post("/{campaign_id}/tables")
+async def create_table(campaign_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+    """Create a new random table for a campaign."""
+    campaign = await db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    tables = _safe_json(getattr(campaign, "random_tables", None), [])
+    new_table = {
+        "id": str(uuid.uuid4())[:8],
+        "name": body.get("name", "Unnamed Table"),
+        "dice": body.get("dice", "d6"),
+        "entries": body.get("entries", []),
+    }
+    tables.append(new_table)
+    campaign.random_tables = json.dumps(tables)
+    await db.commit()
+    return new_table
+
+
+@router.post("/{campaign_id}/tables/{table_id}/roll")
+async def roll_table(campaign_id: str, table_id: str, db: AsyncSession = Depends(get_db)):
+    """Roll on a random table."""
+    import random as rnd
+    campaign = await db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    tables = _safe_json(getattr(campaign, "random_tables", None), [])
+    table = next((t for t in tables if t["id"] == table_id), None)
+    if not table:
+        raise HTTPException(status_code=404, detail="Table not found")
+    entries = table.get("entries", [])
+    if not entries:
+        raise HTTPException(status_code=400, detail="Table has no entries")
+    result = rnd.choice(entries)
+    return {"result": result, "table": table["name"]}
+
+
+@router.delete("/{campaign_id}/tables/{table_id}")
+async def delete_table(campaign_id: str, table_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a random table from a campaign."""
+    campaign = await db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    tables = _safe_json(getattr(campaign, "random_tables", None), [])
+    tables = [t for t in tables if t["id"] != table_id]
+    campaign.random_tables = json.dumps(tables)
+    await db.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Session recap endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.post("/sessions/{session_id}/recap")
+async def generate_recap(session_id: str, db: AsyncSession = Depends(get_db)):
+    """Generate a dramatic 'Previously on...' recap for a session using Claude."""
+    session = await db.get(GameSession, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    notes = getattr(session, "notes", "") or ""
+    pinned = getattr(session, "pinned_notes", "") or ""
+    context = (
+        f"Session notes:\n{notes}\n\nPinned notes:\n{pinned}"
+        if notes or pinned
+        else "No notes recorded for this session."
+    )
+
+    from anthropic import AsyncAnthropic
+    client = AsyncAnthropic()
+    response = await client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=512,
+        messages=[{
+            "role": "user",
+            "content": (
+                "Generate a 2-3 paragraph dramatic 'Previously on...' recap for a D&D session. "
+                "Write in second person ('The party...') as if narrating to players at the start "
+                "of the next session. Be evocative and engaging.\n\n" + context
+            ),
+        }],
+    )
+    recap_text = response.content[0].text if response.content else "No recap available."
+    return {"recap": recap_text}

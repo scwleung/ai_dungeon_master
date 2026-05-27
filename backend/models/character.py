@@ -87,6 +87,13 @@ class Character(Base):
     audit_log: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     hit_dice_remaining: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
     exhaustion: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
+    bonds: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ideals: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    flaws: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    personality: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    languages: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
+    tool_proficiencies: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
+    features: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="characters")  # type: ignore[name-defined]
 
@@ -154,6 +161,13 @@ class CharacterResponse(BaseModel):
     audit_log: Optional[list] = None            # read-only, list of {"timestamp": str, "change": str}
     hit_dice_remaining: Optional[int] = None
     exhaustion: int = 0
+    bonds: Optional[str] = None
+    ideals: Optional[str] = None
+    flaws: Optional[str] = None
+    personality: Optional[str] = None
+    languages: Optional[list] = None
+    tool_proficiencies: Optional[list] = None
+    features: Optional[list] = None
 
     model_config = {"from_attributes": True}
 
@@ -197,6 +211,13 @@ class CharacterResponse(BaseModel):
                 "audit_log": safe_json(getattr(obj, "audit_log", None), None),
                 "hit_dice_remaining": getattr(obj, "hit_dice_remaining", None),
                 "exhaustion": int(getattr(obj, "exhaustion", 0) or 0),
+                "bonds": getattr(obj, "bonds", None),
+                "ideals": getattr(obj, "ideals", None),
+                "flaws": getattr(obj, "flaws", None),
+                "personality": getattr(obj, "personality", None),
+                "languages": safe_json(getattr(obj, "languages", None), []),
+                "tool_proficiencies": safe_json(getattr(obj, "tool_proficiencies", None), []),
+                "features": safe_json(getattr(obj, "features", None), []),
             }
         if isinstance(values, dict):
 
@@ -244,3 +265,11 @@ class CharacterUpdate(BaseModel):
     spellbook: Optional[list] = None
     hit_dice_remaining: Optional[int] = None
     exhaustion: Optional[int] = None
+    bonds: Optional[str] = None
+    ideals: Optional[str] = None
+    flaws: Optional[str] = None
+    personality: Optional[str] = None
+    languages: Optional[list] = None
+    tool_proficiencies: Optional[list] = None
+    features: Optional[list] = None
+    feature_use: Optional[dict] = None  # {"feature_id": str, "delta": int}

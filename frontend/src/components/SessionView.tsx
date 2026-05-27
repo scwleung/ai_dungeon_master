@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { NarrativeLog } from './NarrativeLog'
+import { PartyPanel } from './PartyPanel'
 import { PlayerInput } from './PlayerInput'
 import { CharacterSheet } from './CharacterSheet'
 import { CombatTracker } from './CombatTracker'
@@ -55,6 +56,10 @@ export function SessionView() {
     updateCharacter,
     loadQuests,
     loadSessionNotes,
+    loadPartyState,
+    loadPinnedNotes,
+    savePinnedNotes,
+    pinnedNotes,
     endSession,
     setView,
     isSpectator,
@@ -71,6 +76,9 @@ export function SessionView() {
   const [showQuestPanel, setShowQuestPanel] = useState(false)
   const [showDiceLogPanel, setShowDiceLogPanel] = useState(false)
   const [showNotesPanel, setShowNotesPanel] = useState(false)
+  const [showPartyPanel, setShowPartyPanel] = useState(false)
+  const [showAddPin, setShowAddPin] = useState(false)
+  const [pinInput, setPinInput] = useState('')
   const [endingSession, setEndingSession] = useState(false)
   const [endError, setEndError] = useState<string | null>(null)
   const [copiedInvite, setCopiedInvite] = useState(false)
@@ -105,8 +113,31 @@ export function SessionView() {
   useEffect(() => {
     if (activeSession?.id) {
       loadSessionNotes(activeSession.id).catch(() => {})
+      loadPinnedNotes(activeSession.id).catch(() => {})
     }
-  }, [activeSession?.id, loadSessionNotes])
+  }, [activeSession?.id, loadSessionNotes, loadPinnedNotes])
+
+  // Load party state when campaign is set
+  useEffect(() => {
+    if (activeCampaign) {
+      loadPartyState(activeCampaign.id).catch(() => {})
+    }
+  }, [activeCampaign, loadPartyState])
+
+  function handleRemovePin(id: string) {
+    if (!activeSession) return
+    const next = pinnedNotes.filter((p) => p.id !== id)
+    savePinnedNotes(activeSession.id, next).catch(console.error)
+  }
+
+  function handleAddPin(e: React.FormEvent) {
+    e.preventDefault()
+    if (!activeSession || !pinInput.trim()) return
+    const next = [...pinnedNotes, { id: crypto.randomUUID(), text: pinInput.trim() }]
+    savePinnedNotes(activeSession.id, next).catch(console.error)
+    setPinInput('')
+    setShowAddPin(false)
+  }
 
   // Find current player's character
   const myCharacter = characters.find(
@@ -204,6 +235,13 @@ export function SessionView() {
         </div>
 
         <div className="session-actions">
+          <button
+            className={`party-toggle-btn btn-ghost btn-sm ${showPartyPanel ? 'active' : ''}`}
+            onClick={() => setShowPartyPanel((v) => !v)}
+            title={showPartyPanel ? 'Hide party panel' : 'Show party panel'}
+          >
+            💰 Party
+          </button>
           <button
             className={`dice-toggle-btn btn-ghost btn-sm ${showDiceRoller ? 'active' : ''}`}
             onClick={() => setShowDiceRoller((v) => !v)}
@@ -318,6 +356,84 @@ export function SessionView() {
               )}
             </div>
           )}
+          {/* Pinned Notes Banner */}
+          {pinnedNotes.length > 0 && (
+            <div className="pinned-notes-banner">
+              <span className="pinned-notes-icon">📌</span>
+              <div className="pinned-notes-list">
+                {pinnedNotes.map((pin) => (
+                  <div key={pin.id} className="pinned-note">
+                    <span className="pinned-note-text">{pin.text}</span>
+                    {isDM && (
+                      <button
+                        className="pinned-note-remove"
+                        onClick={() => handleRemovePin(pin.id)}
+                        title="Remove pin"
+                        aria-label="Remove pin"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {isDM && (
+                showAddPin ? (
+                  <form className="pinned-add-form" onSubmit={handleAddPin}>
+                    <input
+                      type="text"
+                      className="pinned-add-input"
+                      placeholder="Pin text..."
+                      value={pinInput}
+                      onChange={(e) => setPinInput(e.target.value)}
+                      autoFocus
+                      maxLength={200}
+                    />
+                    <button type="submit" className="btn-ghost btn-sm" disabled={!pinInput.trim()}>
+                      Pin
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      onClick={() => { setShowAddPin(false); setPinInput('') }}
+                    >
+                      ✕
+                    </button>
+                  </form>
+                ) : (
+                  <button className="btn-ghost btn-sm" onClick={() => setShowAddPin(true)}>+ Pin</button>
+                )
+              )}
+            </div>
+          )}
+          {pinnedNotes.length === 0 && isDM && (
+            showAddPin ? (
+              <div className="pinned-notes-banner">
+                <span className="pinned-notes-icon">📌</span>
+                <form className="pinned-add-form" onSubmit={handleAddPin}>
+                  <input
+                    type="text"
+                    className="pinned-add-input"
+                    placeholder="Pin text..."
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value)}
+                    autoFocus
+                    maxLength={200}
+                  />
+                  <button type="submit" className="btn-ghost btn-sm" disabled={!pinInput.trim()}>
+                    Pin
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost btn-sm"
+                    onClick={() => { setShowAddPin(false); setPinInput('') }}
+                  >
+                    ✕
+                  </button>
+                </form>
+              </div>
+            ) : null
+          )}
           <NarrativeLog />
           {!isSpectator && (
             <PlayerInput
@@ -329,6 +445,13 @@ export function SessionView() {
             />
           )}
         </div>
+
+        {/* Right Panel: Party Panel */}
+        {showPartyPanel && (
+          <div className="party-outer-panel">
+            <PartyPanel isDM={isDM} onClose={() => setShowPartyPanel(false)} />
+          </div>
+        )}
 
         {/* Right Panel: Dice Log */}
         {showDiceLogPanel && (
@@ -388,6 +511,7 @@ export function SessionView() {
             <CharacterSheet
               character={myCharacter}
               onUpdate={updateCharacter}
+              onSendAction={isSpectator ? undefined : sendAction}
             />
           </div>
         )}
@@ -528,7 +652,8 @@ export function SessionView() {
         .quest-toggle-btn.active,
         .dice-toggle-btn.active,
         .dice-log-toggle-btn.active,
-        .notes-toggle-btn.active {
+        .notes-toggle-btn.active,
+        .party-toggle-btn.active {
           border-color: var(--accent);
           color: var(--accent);
         }
@@ -671,6 +796,100 @@ export function SessionView() {
           margin: var(--space-2) var(--space-4);
         }
 
+        .party-outer-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        /* Pinned notes banner */
+        .pinned-notes-banner {
+          display: flex;
+          align-items: flex-start;
+          gap: var(--space-2);
+          padding: var(--space-2) var(--space-4);
+          background: var(--bg-secondary);
+          border-bottom: 2px solid rgba(196, 130, 10, 0.4);
+          flex-shrink: 0;
+          flex-wrap: wrap;
+        }
+
+        .pinned-notes-icon {
+          font-size: var(--font-size-sm);
+          flex-shrink: 0;
+          margin-top: 2px;
+        }
+
+        .pinned-notes-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: var(--space-2);
+          flex: 1;
+        }
+
+        .pinned-note {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 2px var(--space-2);
+          background: rgba(196, 130, 10, 0.08);
+          border: 1px solid rgba(196, 130, 10, 0.3);
+          border-radius: var(--radius-full);
+          font-size: var(--font-size-xs);
+        }
+
+        .pinned-note-text {
+          color: var(--text-secondary);
+        }
+
+        .pinned-note-remove {
+          background: transparent;
+          border: none;
+          color: var(--text-muted);
+          cursor: pointer;
+          padding: 0;
+          font-size: 0.9rem;
+          line-height: 1;
+          opacity: 0.6;
+          text-transform: none;
+          letter-spacing: 0;
+          min-width: unset;
+        }
+
+        .pinned-note-remove:hover {
+          opacity: 1;
+          color: var(--accent-danger);
+          background: transparent;
+          border-color: transparent;
+        }
+
+        .pinned-add-form {
+          display: flex;
+          align-items: center;
+          gap: var(--space-1);
+          flex: 1;
+          min-width: 200px;
+        }
+
+        .pinned-add-input {
+          flex: 1;
+          font-size: var(--font-size-xs);
+          padding: 2px var(--space-2);
+          background: var(--bg-primary);
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
+          color: var(--text-primary);
+        }
+
+        .pinned-add-input:focus {
+          outline: none;
+          border-color: var(--accent);
+        }
+
         /* Main layout */
         .session-main {
           flex: 1;
@@ -704,7 +923,8 @@ export function SessionView() {
           .npc-panel,
           .quest-panel,
           .dice-log-outer-panel,
-          .notes-outer-panel {
+          .notes-outer-panel,
+          .party-outer-panel {
             position: fixed;
             top: var(--header-height);
             right: 0;

@@ -454,6 +454,17 @@ export interface WsQuestUpdate {
   quests: Quest[]
 }
 
+export interface WsPartyUpdate {
+  type: 'party_update'
+  gold: number
+  items: string[]
+}
+
+export interface WsPinnedUpdate {
+  type: 'pinned_update'
+  pins: Array<{ id: string; text: string }>
+}
+
 /** Union of all messages the server may push to the client over the WebSocket. */
 export type WsServerMessage =
   | WsDmChunk
@@ -472,3 +483,5 @@ export type WsServerMessage =
   | WsNpcUpdate
   | WsSceneImage
   | WsQuestUpdate
+  | WsPartyUpdate
+  | WsPinnedUpdate

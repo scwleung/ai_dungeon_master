@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { api } from '../api/client'
 import { useGameStore } from '../store/gameStore'
 import type { Combatant } from '../types'
+import { ConditionReference } from './ConditionReference'
 
 /**
  * Real-time combat initiative tracker.
@@ -27,6 +28,7 @@ export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: bo
   const [addHpCurrent, setAddHpCurrent] = useState('')
   const [addIsPlayer, setAddIsPlayer] = useState(false)
   const [addLoading, setAddLoading] = useState(false)
+  const [showConditions, setShowConditions] = useState(false)
 
   async function handleNextTurn() {
     if (!sessionId) return
@@ -111,6 +113,21 @@ export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: bo
           <span className="combat-empty-sub">Combat will appear here when the DM starts an encounter</span>
         </div>
 
+        {showConditions && (
+          <div className="combat-conditions-inline">
+            <ConditionReference onClose={() => setShowConditions(false)} />
+          </div>
+        )}
+
+        <div className="combat-conditions-footer">
+          <button
+            className="btn-ghost btn-sm combat-conditions-toggle"
+            onClick={() => setShowConditions((v) => !v)}
+          >
+            📖 Conditions
+          </button>
+        </div>
+
         <style>{combatStyles}</style>
       </div>
     )
@@ -161,6 +178,21 @@ export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: bo
             onRemove={handleRemoveCombatant}
           />
         ))}
+      </div>
+
+      {showConditions && (
+        <div className="combat-conditions-inline">
+          <ConditionReference onClose={() => setShowConditions(false)} />
+        </div>
+      )}
+
+      <div className="combat-conditions-footer">
+        <button
+          className="btn-ghost btn-sm combat-conditions-toggle"
+          onClick={() => setShowConditions((v) => !v)}
+        >
+          📖 Conditions
+        </button>
       </div>
 
       {sessionId && isDM && (
@@ -576,5 +608,25 @@ const combatStyles = `
   .combat-add-actions {
     display: flex;
     gap: var(--space-2);
+  }
+
+  .combat-conditions-footer {
+    border-top: 1px solid var(--border);
+    padding: var(--space-2) var(--space-3);
+    flex-shrink: 0;
+  }
+
+  .combat-conditions-toggle {
+    width: 100%;
+    font-size: var(--font-size-xs);
+  }
+
+  .combat-conditions-inline {
+    flex: 0 0 auto;
+    max-height: 300px;
+    overflow: hidden;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
   }
 `

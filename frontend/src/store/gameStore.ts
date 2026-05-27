@@ -271,6 +271,18 @@ export interface GameStore {
   setIsSpectator: (val: boolean) => void
   /** Join as a spectator for a session (no access code required). */
   joinAsSpectator: (sessionId: string) => Promise<void>
+
+  // Party state
+  partyState: { gold: number; items: string[] }
+  loadPartyState: (campaignId: string) => Promise<void>
+  setPartyState: (state: { gold: number; items: string[] }) => void
+  savePartyState: (campaignId: string, state: { gold: number; items: string[] }) => Promise<void>
+
+  // Pinned notes
+  pinnedNotes: Array<{ id: string; text: string }>
+  loadPinnedNotes: (sessionId: string) => Promise<void>
+  setPinnedNotes: (pins: Array<{ id: string; text: string }>) => void
+  savePinnedNotes: (sessionId: string, pins: Array<{ id: string; text: string }>) => Promise<void>
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({

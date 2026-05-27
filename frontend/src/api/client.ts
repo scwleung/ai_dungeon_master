@@ -76,6 +76,12 @@ export const api = {
       request<{ data: Campaign }>('POST', '/api/campaigns', data),
     /** Permanently delete a campaign by ID. */
     delete: (id: string) => request<void>('DELETE', `/api/campaigns/${id}`),
+    /** Export a full campaign bundle as JSON (requires access code). */
+    export: (id: string) => request<unknown>('GET', `/api/campaigns/${id}/export`),
+    /** Import a campaign bundle, creating a new campaign with a fresh access code. */
+    import: (payload: unknown) => request<{ id: string; name: string; ruleset: string; description: string; access_code: string; created_at: string }>('POST', '/api/campaigns/import', payload),
+    /** Generate a new access code for the campaign (requires access code). */
+    rotateAccessCode: (id: string) => request<{ campaign_id: string; access_code: string }>('POST', `/api/campaigns/${id}/rotate-access-code`),
   },
 
   /** Session lifecycle operations scoped to a campaign. */
@@ -138,6 +144,26 @@ export const api = {
     /** Fetch all quests for a campaign. */
     list: (campaignId: string) =>
       request<{ campaign_id: string; quests: Quest[] }>('GET', `/api/campaigns/${campaignId}/quests`),
+  },
+
+  /** Party state (shared gold + items). */
+  party: {
+    get: (campaignId: string) =>
+      request<{ campaign_id: string; gold: number; items: string[] }>('GET', `/api/campaigns/${campaignId}/party`),
+    update: (campaignId: string, state: { gold: number; items: string[] }, accessCode: string) =>
+      fetch(`/api/campaigns/${campaignId}/party`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Access-Code': accessCode },
+        body: JSON.stringify(state),
+      }).then((r) => r.json()) as Promise<{ campaign_id: string; gold: number; items: string[] }>,
+  },
+
+  /** Session pin operations. */
+  pins: {
+    get: (sessionId: string) =>
+      request<{ session_id: string; pins: Array<{ id: string; text: string }> }>('GET', `/api/campaigns/sessions/${sessionId}/pins`),
+    update: (sessionId: string, pins: Array<{ id: string; text: string }>) =>
+      request<{ session_id: string; pins: Array<{ id: string; text: string }> }>('PUT', `/api/campaigns/sessions/${sessionId}/pins`, { pins }),
   },
 
   /** Combat tracker REST controls. */

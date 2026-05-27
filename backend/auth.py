@@ -26,8 +26,8 @@ async def require_campaign_access(
     campaign_id: str,
     x_access_code: str = Header(default=""),
     db: AsyncSession = Depends(get_db),
-) -> None:
-    """Raise 404 if campaign is missing, 403 if access code is wrong."""
+) -> Campaign:
+    """Raise 404 if campaign is missing, 403 if access code is wrong. Returns the Campaign."""
     result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
     campaign = result.scalar_one_or_none()
     if campaign is None:
@@ -40,6 +40,7 @@ async def require_campaign_access(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid access code",
         )
+    return campaign
 
 
 async def require_session_access(

@@ -43,14 +43,17 @@ import asyncio
 import json
 import os
 import uuid
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+import time as _time
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -70,6 +73,10 @@ from backend.ws.session_hub import session_hub
 
 load_dotenv()
 
+_rl_store: dict[str, deque] = defaultdict(deque)
+_RL_LIMIT = 60
+_RL_WINDOW = 60.0
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -83,6 +90,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE characters ADD COLUMN spell_slots TEXT",
             "ALTER TABLE characters ADD COLUMN resources TEXT",
             "ALTER TABLE sessions ADD COLUMN notes TEXT",
+            "ALTER TABLE campaigns ADD COLUMN party_state TEXT",
+            "ALTER TABLE sessions ADD COLUMN pinned_notes TEXT",
         ]:
             try:
                 await db.execute(text(col_sql))
@@ -97,6 +106,27 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+_RL_EXEMPT = {"127.0.0.1", "::1", "testclient", "localhost"}
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    if not request.url.path.startswith("/api"):
+        return await call_next(request)
+    ip = (request.client.host if request.client else "unknown")
+    if ip in _RL_EXEMPT:
+        return await call_next(request)
+    now = _time.monotonic()
+    bucket = _rl_store[ip]
+    while bucket and bucket[0] < now - _RL_WINDOW:
+        bucket.popleft()
+    if len(bucket) >= _RL_LIMIT:
+        return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Please wait before retrying."})
+    bucket.append(now)
+    return await call_next(request)
+
 
 # ---------------------------------------------------------------------------
 # CORS
@@ -542,6 +572,27 @@ async def _upsert_quest_in_db(campaign_id: str, quest_data: dict) -> tuple[str, 
         return f"Quest '{quest['name']}' {action}.", quests
 
 
+async def _update_party_state_in_db(campaign_id: str, gold_delta: int, add_items: list, remove_items: list):
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+        campaign = result.scalar_one_or_none()
+        if not campaign:
+            return None
+        state = json.loads(campaign.party_state) if campaign.party_state else {"gold": 0, "items": []}
+        state["gold"] = max(0, state["gold"] + gold_delta)
+        items = list(state.get("items", []))
+        for item in add_items:
+            items.append(item)
+        for item in remove_items:
+            if item in items:
+                items.remove(item)
+        state["items"] = items
+        campaign.party_state = json.dumps(state)
+        db.add(campaign)
+        await db.commit()
+        return state
+
+
 async def _update_world_state_in_db(campaign_id: str, updates: dict) -> str:
     """Apply world state key-value updates to the campaign in the DB."""
     async with AsyncSessionLocal() as db:
@@ -799,6 +850,19 @@ async def websocket_endpoint(
             if quests is not None:
                 await session_hub.broadcast(session_id, {"type": "quest_update", "quests": quests})
             return message
+
+        elif tool_name == "update_party_state":
+            if campaign_id is None:
+                return "No campaign associated with this session."
+            state = await _update_party_state_in_db(
+                campaign_id=campaign_id,
+                gold_delta=tool_input.get("gold_delta", 0),
+                add_items=tool_input.get("add_items", []),
+                remove_items=tool_input.get("remove_items", []),
+            )
+            if state:
+                await session_hub.broadcast(session_id, {"type": "party_update", "gold": state["gold"], "items": state["items"]})
+            return f"Party state updated: gold={state['gold'] if state else 'unknown'}"
 
         elif tool_name == "generate_scene_image":
             description = tool_input.get("description", "")

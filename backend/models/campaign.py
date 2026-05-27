@@ -71,6 +71,7 @@ class Campaign(Base):
     map_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     npcs: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     quests: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    party_state: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     characters: Mapped[list["Character"]] = relationship(  # type: ignore[name-defined]
         "Character",
@@ -113,6 +114,7 @@ class Session(Base):
     messages: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     session_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    pinned_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="sessions")
 

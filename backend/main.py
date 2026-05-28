@@ -114,9 +114,12 @@ async def rate_limit_middleware(request: Request, call_next):
     bucket = _rl_store[ip]
     while bucket and bucket[0] < now - _RL_WINDOW:
         bucket.popleft()
+    if not bucket:
+        del _rl_store[ip]
     if len(bucket) >= _RL_LIMIT:
         return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Please wait before retrying."})
     bucket.append(now)
+    _rl_store[ip] = bucket
     return await call_next(request)
 
 

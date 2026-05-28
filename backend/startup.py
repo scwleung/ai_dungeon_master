@@ -20,10 +20,10 @@ async def run_migrations(conn) -> None:
 
     Args:
         conn: An active SQLAlchemy ``AsyncConnection`` obtained via
-              ``async with engine.begin() as conn``.  Because each statement
-              commits independently, pass a connection from a session that
-              supports individual-statement commits (e.g. the
-              ``AsyncSessionLocal`` context already used in the lifespan).
+              ``async with engine.begin() as conn``.  All statements are
+              attempted in a single transaction; per-statement rollbacks
+              silently skip columns that already exist, and a single final
+              commit is issued after all statements have been attempted.
     """
     migration_statements = [
         "ALTER TABLE characters ADD COLUMN spell_slots TEXT",
@@ -59,6 +59,6 @@ async def run_migrations(conn) -> None:
     for col_sql in migration_statements:
         try:
             await conn.execute(text(col_sql))
-            await conn.commit()
         except Exception:
-            await conn.rollback()
+            await conn.rollback()  # roll back the failed statement only
+    await conn.commit()  # single commit after all statements attempted

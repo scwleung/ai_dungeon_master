@@ -86,9 +86,11 @@ class CombatState:
                     duration = cond.get("duration")
                     if duration is None:
                         new_conditions.append(cond)  # permanent
-                    elif duration > 1:
-                        new_conditions.append({**cond, "duration": duration - 1})
-                    # duration == 1 → expires, drop it
+                    elif duration > 0:
+                        new_duration = duration - 1
+                        if new_duration > 0:
+                            new_conditions.append({**cond, "duration": new_duration})
+                        # new_duration == 0 → expires (lasted duration ticks)
                 else:
                     new_conditions.append(cond)  # plain string, no duration
             combatant.conditions = new_conditions

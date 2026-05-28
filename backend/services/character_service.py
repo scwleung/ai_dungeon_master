@@ -164,10 +164,17 @@ async def update_character_in_db(character_id: str, tool_input: dict) -> str:
             feature_id = tool_input["feature_use"].get("feature_id")
             delta = int(tool_input["feature_use"].get("delta", -1))
             feats = _safe_json(char.features, [])
+            found = False
             for f in feats:
                 if f.get("id") == feature_id:
                     new_uses = max(0, f.get("uses_remaining", 0) + delta)
                     f["uses_remaining"] = new_uses
+                    found = True
+            if not found:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "feature_use: feature_id %r not found on character %s", feature_id, character_id
+                )
             char.features = json.dumps(feats)
 
         # Append audit log entry

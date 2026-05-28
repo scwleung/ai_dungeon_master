@@ -25,6 +25,7 @@ returned in the campaign response).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -1129,3 +1130,27 @@ async def generate_recap(session_id: str, db: AsyncSession = Depends(get_db)):
     )
     recap_text = response.content[0].text if response.content else "No recap available."
     return {"recap": recap_text}
+
+
+# ---------------------------------------------------------------------------
+# Admin backup endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/backup")
+async def admin_backup(db: AsyncSession = Depends(get_db)):
+    """Return a full backup of all campaigns, sessions, and characters."""
+    results = await asyncio.gather(
+        db.execute(select(Campaign)),
+        db.execute(select(GameSession)),
+        db.execute(select(Character)),
+    )
+    campaigns = results[0].scalars().all()
+    sessions = results[1].scalars().all()
+    characters = results[2].scalars().all()
+
+    return {
+        "campaigns": [CampaignResponse.model_validate(c).model_dump() for c in campaigns],
+        "sessions": [SessionResponse.model_validate(s).model_dump() for s in sessions],
+        "characters": [{"id": c.id, "name": c.name, "campaign_id": c.campaign_id} for c in characters],
+    }

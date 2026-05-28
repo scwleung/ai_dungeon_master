@@ -929,12 +929,14 @@ class DungeonMaster:
             }],
         )
         text = resp.content[0].text.strip()
-        try:
-            import re
-            m = re.search(r'\{.*\}', text, re.DOTALL)
-            return json.loads(m.group()) if m else {"name": "Trap", "trigger": text, "effect": "", "save": "DEX", "damage": "2d6", "dc": 13, "disarm_dc": 15}
-        except Exception:
-            return {"name": "Trap", "trigger": text, "effect": "", "save": "DEX", "damage": "2d6", "dc": 13, "disarm_dc": 15}
+        start = text.find('{')
+        end = text.rfind('}') + 1
+        if start >= 0 and end > start:
+            try:
+                return json.loads(text[start:end])
+            except json.JSONDecodeError:
+                pass
+        return {"name": "Trap", "trigger": text, "effect": "", "save": "DEX", "damage": "2d6", "dc": 13, "disarm_dc": 15}
 
     async def generate_puzzle(self, difficulty: str, theme: str) -> dict:
         """Generate a puzzle appropriate for the theme and difficulty."""
@@ -951,12 +953,14 @@ class DungeonMaster:
             }],
         )
         text = resp.content[0].text.strip()
-        try:
-            import re
-            m = re.search(r'\{.*\}', text, re.DOTALL)
-            return json.loads(m.group()) if m else {"name": "Puzzle", "description": text, "clues": [], "solution": "", "reward": ""}
-        except Exception:
-            return {"name": "Puzzle", "description": text, "clues": [], "solution": "", "reward": ""}
+        start = text.find('{')
+        end = text.rfind('}') + 1
+        if start >= 0 and end > start:
+            try:
+                return json.loads(text[start:end])
+            except json.JSONDecodeError:
+                pass
+        return {"name": "Puzzle", "description": text, "clues": [], "solution": "", "reward": ""}
 
     async def generate_shop(self, settlement_size: str, shop_type: str) -> list[dict]:
         """Generate shop inventory appropriate for the settlement and shop type."""
@@ -973,12 +977,14 @@ class DungeonMaster:
             }],
         )
         text = resp.content[0].text.strip()
-        try:
-            import re
-            m = re.search(r'\[.*\]', text, re.DOTALL)
-            return json.loads(m.group()) if m else []
-        except Exception:
-            return []
+        start = text.find('[')
+        end = text.rfind(']') + 1
+        if start >= 0 and end > start:
+            try:
+                return json.loads(text[start:end])
+            except json.JSONDecodeError:
+                pass
+        return []
 
     # ------------------------------------------------------------------
     # Vision: dice detection

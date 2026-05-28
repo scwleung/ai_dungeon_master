@@ -68,8 +68,10 @@ from backend.models.character import Character
 from backend.models.roll_result import roll_dice, RollResult
 from backend.routers import campaigns, characters, tts as tts_router
 from backend.routers import combat as combat_router
+from backend.services.character_service import update_character_in_db
 from backend.services.dm_brain import DungeonMaster
 from backend.services.game_state import PendingRoll, game_state_manager
+from backend.startup import run_migrations
 from backend.ws.session_hub import session_hub
 
 load_dotenv()
@@ -87,41 +89,7 @@ _RL_WINDOW = 60.0
 async def lifespan(app: FastAPI):
     await init_db()
     async with AsyncSessionLocal() as db:
-        for col_sql in [
-            "ALTER TABLE characters ADD COLUMN spell_slots TEXT",
-            "ALTER TABLE characters ADD COLUMN resources TEXT",
-            "ALTER TABLE sessions ADD COLUMN notes TEXT",
-            "ALTER TABLE campaigns ADD COLUMN party_state TEXT",
-            "ALTER TABLE sessions ADD COLUMN pinned_notes TEXT",
-            "ALTER TABLE characters ADD COLUMN xp INTEGER",
-            "ALTER TABLE characters ADD COLUMN death_saves TEXT",
-            "ALTER TABLE characters ADD COLUMN concentration TEXT",
-            "ALTER TABLE characters ADD COLUMN inspiration INTEGER DEFAULT 0",
-            "ALTER TABLE campaigns ADD COLUMN map_annotations TEXT",
-            "ALTER TABLE campaigns ADD COLUMN world_time TEXT",
-            "ALTER TABLE campaigns ADD COLUMN handouts TEXT",
-            "ALTER TABLE campaigns ADD COLUMN timeline TEXT",
-            "ALTER TABLE characters ADD COLUMN currency TEXT",
-            "ALTER TABLE characters ADD COLUMN spellbook TEXT",
-            "ALTER TABLE characters ADD COLUMN audit_log TEXT",
-            "ALTER TABLE sessions ADD COLUMN dm_notes TEXT",
-            "ALTER TABLE campaigns ADD COLUMN readalouds TEXT",
-            "ALTER TABLE characters ADD COLUMN hit_dice_remaining INTEGER",
-            "ALTER TABLE characters ADD COLUMN exhaustion INTEGER DEFAULT 0",
-            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS bonds TEXT",
-            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS ideals TEXT",
-            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS flaws TEXT",
-            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS personality TEXT",
-            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS languages TEXT DEFAULT '[]'",
-            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS tool_proficiencies TEXT DEFAULT '[]'",
-            "ALTER TABLE characters ADD COLUMN IF NOT EXISTS features TEXT DEFAULT '[]'",
-            "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS random_tables TEXT DEFAULT '[]'",
-        ]:
-            try:
-                await db.execute(text(col_sql))
-                await db.commit()
-            except Exception:
-                await db.rollback()
+        await run_migrations(db)
     yield
 
 
@@ -429,178 +397,6 @@ async def _load_campaign_and_characters(
             return None, []
         characters = list(campaign.characters)
         return campaign, characters
-
-
-async def _update_character_in_db(character_id: str, tool_input: dict) -> str:
-    """
-    Apply an update_character tool call to the database.
-
-    Returns a human-readable summary of changes made.
-    """
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(Character).where(Character.id == character_id)
-        )
-        char = result.scalar_one_or_none()
-        if char is None:
-            return f"Character {character_id!r} not found."
-
-        changes: list[str] = []
-
-        # HP delta
-        hp_delta = tool_input.get("hp_delta")
-        if hp_delta is not None:
-            old_hp = char.hp_current
-            char.hp_current = max(0, min(char.hp_max, char.hp_current + hp_delta))
-            direction = "healed" if hp_delta > 0 else "took"
-            changes.append(
-                f"{char.name} {direction} {abs(hp_delta)} HP "
-                f"({old_hp} → {char.hp_current}/{char.hp_max})"
-            )
-
-        # Inventory changes
-        try:
-            inventory: list[str] = json.loads(char.inventory)
-        except (json.JSONDecodeError, TypeError):
-            inventory = []
-
-        for item in tool_input.get("add_items", []):
-            if item not in inventory:
-                inventory.append(item)
-                changes.append(f"Added '{item}' to {char.name}'s inventory")
-
-        for item in tool_input.get("remove_items", []):
-            if item in inventory:
-                inventory.remove(item)
-                changes.append(f"Removed '{item}' from {char.name}'s inventory")
-
-        char.inventory = json.dumps(inventory)
-
-        # Condition changes
-        try:
-            conditions: list[str] = json.loads(char.conditions)
-        except (json.JSONDecodeError, TypeError):
-            conditions = []
-
-        for cond in tool_input.get("add_conditions", []):
-            if cond not in conditions:
-                conditions.append(cond)
-                changes.append(f"{char.name} gained condition: {cond}")
-
-        for cond in tool_input.get("remove_conditions", []):
-            if cond in conditions:
-                conditions.remove(cond)
-                changes.append(f"{char.name} lost condition: {cond}")
-
-        char.conditions = json.dumps(conditions)
-
-        # Notes
-        notes_append = tool_input.get("notes_append")
-        if notes_append:
-            char.notes = (char.notes or "") + "\n" + notes_append
-            changes.append(f"Added note for {char.name}")
-
-        # Spell slots
-        if "spell_slots" in tool_input:
-            char.spell_slots = json.dumps(tool_input["spell_slots"])
-            changes.append(f"Updated spell slots for {char.name}")
-
-        # Class resources
-        if "resources" in tool_input:
-            char.resources = json.dumps(tool_input["resources"])
-            changes.append(f"Updated resources for {char.name}")
-
-        # XP
-        if "xp" in tool_input:
-            char.xp = tool_input["xp"]
-            changes.append(f"Updated XP for {char.name}")
-
-        # Death saves
-        if "death_saves" in tool_input:
-            char.death_saves = json.dumps(tool_input["death_saves"])
-            changes.append(f"Updated death saves for {char.name}")
-
-        # Concentration
-        if "concentration" in tool_input:
-            char.concentration = tool_input["concentration"]  # str or None
-            if tool_input["concentration"]:
-                changes.append(f"{char.name} is concentrating on {tool_input['concentration']}")
-            else:
-                changes.append(f"{char.name} broke concentration")
-
-        # Inspiration
-        if "inspiration" in tool_input:
-            char.inspiration = 1 if tool_input["inspiration"] else 0
-            status = "gained" if tool_input["inspiration"] else "spent"
-            changes.append(f"{char.name} {status} inspiration")
-
-        if "currency" in tool_input:
-            char.currency = json.dumps(tool_input["currency"])
-            changes.append(f"Updated currency for {char.name}")
-
-        if "spellbook" in tool_input:
-            char.spellbook = json.dumps(tool_input["spellbook"])
-            changes.append(f"Updated spellbook for {char.name}")
-
-        if "hit_dice_remaining" in tool_input:
-            char.hit_dice_remaining = tool_input["hit_dice_remaining"]
-            changes.append(f"Updated hit dice for {char.name}")
-
-        if "exhaustion" in tool_input:
-            old = int(char.exhaustion or 0)
-            char.exhaustion = max(0, min(6, int(tool_input["exhaustion"])))
-            if char.exhaustion > old:
-                changes.append(f"{char.name} exhaustion increased to level {char.exhaustion}")
-            elif char.exhaustion < old:
-                changes.append(f"{char.name} exhaustion reduced to level {char.exhaustion}")
-
-        def _safe_json(raw, default):
-            if isinstance(raw, str):
-                try:
-                    return json.loads(raw)
-                except (json.JSONDecodeError, TypeError):
-                    return default
-            return raw if raw is not None else default
-
-        if "bonds" in tool_input:
-            char.bonds = tool_input["bonds"]
-        if "ideals" in tool_input:
-            char.ideals = tool_input["ideals"]
-        if "flaws" in tool_input:
-            char.flaws = tool_input["flaws"]
-        if "personality" in tool_input:
-            char.personality = tool_input["personality"]
-        if "languages" in tool_input:
-            char.languages = json.dumps(tool_input["languages"])
-        if "tool_proficiencies" in tool_input:
-            char.tool_proficiencies = json.dumps(tool_input["tool_proficiencies"])
-        if "features" in tool_input:
-            char.features = json.dumps(tool_input["features"])
-        if "feature_use" in tool_input:
-            feature_id = tool_input["feature_use"].get("feature_id")
-            delta = int(tool_input["feature_use"].get("delta", -1))
-            feats = _safe_json(char.features, [])
-            for f in feats:
-                if f.get("id") == feature_id:
-                    new_uses = max(0, f.get("uses_remaining", 0) + delta)
-                    f["uses_remaining"] = new_uses
-            char.features = json.dumps(feats)
-
-        # Append audit log entry
-        if changes:
-            try:
-                audit = json.loads(char.audit_log or "[]")
-            except (json.JSONDecodeError, TypeError):
-                audit = []
-            audit.append({
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "change": "; ".join(changes),
-            })
-            char.audit_log = json.dumps(audit[-200:])  # cap at 200 entries
-
-        await db.commit()
-
-        return "; ".join(changes) if changes else f"No changes made to {char.name}."
 
 
 async def _reveal_area_in_db(campaign_id: str, room_id: str) -> tuple[str, list[str]]:
@@ -921,7 +717,7 @@ async def websocket_endpoint(
             if not character_id:
                 return "Missing character_id for update_character tool."
 
-            summary = await _update_character_in_db(character_id, tool_input)
+            summary = await update_character_in_db(character_id, tool_input)
 
             # Build a state_update payload to broadcast to all players
             async with AsyncSessionLocal() as db:
@@ -1027,6 +823,10 @@ async def websocket_endpoint(
     # Main message loop
     # ----------------------------------------------------------------
 
+    _ws_msg_times: deque = deque()
+    WS_RATE_LIMIT = 30  # messages per 10-second window
+    WS_RATE_WINDOW = 10.0
+
     keepalive_task = asyncio.create_task(_ws_keepalive(ws))
     try:
         while True:
@@ -1034,6 +834,15 @@ async def websocket_endpoint(
                 raw = await ws.receive_text()
             except WebSocketDisconnect:
                 break
+
+            # Per-connection rate limiting
+            now = _time.monotonic()
+            while _ws_msg_times and now - _ws_msg_times[0] > WS_RATE_WINDOW:
+                _ws_msg_times.popleft()
+            if len(_ws_msg_times) >= WS_RATE_LIMIT:
+                await session_hub.send_to_socket(ws, {"type": "error", "message": "Message rate limit exceeded. Please slow down."})
+                continue
+            _ws_msg_times.append(now)
 
             try:
                 data = json.loads(raw)

@@ -163,6 +163,8 @@ export const api = {
     delete: (id: string) => request<void>('DELETE', `/api/characters/${id}`),
     getAuditLog: (characterId: string) =>
       request<{ character_id: string; audit_log: Array<{ timestamp: string; change: string }> }>('GET', `/api/characters/${characterId}/audit-log`),
+    exportCharacter: (id: string) =>
+      request<Character>('GET', `/api/characters/${id}`),
   },
 
   /** Dungeon map operations. */

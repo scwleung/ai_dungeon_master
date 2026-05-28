@@ -1,11 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { useGameStore } from './store/gameStore'
 import { Header } from './components/Header'
-import { CampaignList } from './components/CampaignList'
-import { CampaignDetail } from './components/CampaignDetail'
-import { SessionView } from './components/SessionView'
 import ErrorBoundary from './components/ErrorBoundary'
 import ToastProvider from './components/ToastProvider'
+
+const CampaignList = lazy(() => import('./components/CampaignList').then(m => ({ default: m.CampaignList })))
+const CampaignDetail = lazy(() => import('./components/CampaignDetail').then(m => ({ default: m.CampaignDetail })))
+const SessionView = lazy(() => import('./components/SessionView').then(m => ({ default: m.SessionView })))
 
 import './themes/base.css'
 import './themes/fantasy.css'
@@ -72,9 +73,11 @@ export default function App() {
         )}
 
         <main className="app-main">
-          {view === 'campaigns' && <CampaignList />}
-          {view === 'campaign_detail' && <CampaignDetail />}
-          {view === 'session' && <SessionView />}
+          <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'var(--color-muted,#888)'}}>Loading...</div>}>
+            {view === 'campaigns' && <CampaignList />}
+            {view === 'campaign_detail' && <CampaignDetail />}
+            {view === 'session' && <SessionView />}
+          </Suspense>
         </main>
 
         <ToastProvider />

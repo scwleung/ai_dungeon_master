@@ -516,9 +516,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setSceneImage: (img) => set({ sceneImage: img }),
 
   // Dice log
-  diceLog: [],
+  diceLog: (() => {
+    try {
+      return JSON.parse(localStorage.getItem('diceLog') ?? '[]').slice(-50) as DiceLogEntry[]
+    } catch {
+      return []
+    }
+  })(),
   addDiceLogEntry: (entry) =>
-    set((state) => ({ diceLog: [entry, ...state.diceLog].slice(0, 100) })),
+    set((state) => {
+      const updated = [entry, ...state.diceLog].slice(0, 100)
+      try {
+        localStorage.setItem('diceLog', JSON.stringify(updated.slice(0, 50)))
+      } catch { /* ignore */ }
+      return { diceLog: updated }
+    }),
 
   // Session notes
   sessionNotes: '',

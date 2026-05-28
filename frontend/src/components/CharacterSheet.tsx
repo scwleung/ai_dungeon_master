@@ -5,6 +5,33 @@ import type { Character } from '../types'
 import LevelUpWizard from './LevelUpWizard'
 import { FeatureTracker } from './FeatureTracker'
 
+interface LocalCombatStats {
+  ac: number
+  speed: number
+  initiative_bonus: number
+}
+
+function loadCombatStats(characterId: string, dexMod: number): LocalCombatStats {
+  try {
+    const raw = localStorage.getItem(`char-stats-${characterId}`)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<LocalCombatStats>
+      return {
+        ac: parsed.ac ?? 10,
+        speed: parsed.speed ?? 30,
+        initiative_bonus: parsed.initiative_bonus ?? dexMod,
+      }
+    }
+  } catch { /* ignore */ }
+  return { ac: 10, speed: 30, initiative_bonus: dexMod }
+}
+
+function saveCombatStats(characterId: string, stats: LocalCombatStats): void {
+  try {
+    localStorage.setItem(`char-stats-${characterId}`, JSON.stringify(stats))
+  } catch { /* ignore */ }
+}
+
 interface Props {
   character: Character
   onUpdate: (id: string, updates: Partial<Character>) => void
@@ -103,7 +130,7 @@ function Section({
  * @param onSendAction - Optional callback to send a player action text to the DM.
  */
 export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill, isGameMaster, onSendFeatureUse }: Props) {
-  const { updateCharacter, settings } = useGameStore()
+  const { updateCharacter, settings, addToast } = useGameStore()
   const isOwner = isGameMaster || character.player_name === settings.playerName
   const [newItem, setNewItem] = useState('')
   const [newCondition, setNewCondition] = useState('')
@@ -119,6 +146,19 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill,
   const [showHistory, setShowHistory] = useState(false)
   const [auditLog, setAuditLog] = useState<Array<{ timestamp: string; change: string }>>(character.audit_log ?? [])
   const [activeTab, setActiveTab] = useState<'main' | 'features' | 'traits'>('main')
+  const importFileRef = useRef<HTMLInputElement>(null)
+
+  // Local combat stats (AC, Speed, Initiative) persisted to localStorage
+  const dexMod = Math.floor(((character.stats?.DEX ?? 10) - 10) / 2)
+  const [combatStats, setCombatStats] = useState<LocalCombatStats>(() =>
+    loadCombatStats(character.id, dexMod)
+  )
+
+  function handleCombatStatChange(field: keyof LocalCombatStats, value: number) {
+    const next = { ...combatStats, [field]: value }
+    setCombatStats(next)
+    saveCombatStats(character.id, next)
+  }
 
   // Detect level-up when XP changes
   useEffect(() => {
@@ -183,6 +223,48 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill,
     setEditingNotes(false)
   }
 
+  function handleExportCharacter() {
+    const exportData = {
+      version: 1,
+      exported_at: new Date().toISOString(),
+      character: character,
+    }
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${character.name.replace(/\s+/g, '_')}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleImportClick() {
+    importFileRef.current?.click()
+  }
+
+  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const text = ev.target?.result
+        if (typeof text !== 'string') throw new Error('Could not read file')
+        const parsed = JSON.parse(text) as { character?: Partial<Character> }
+        if (!parsed.character) throw new Error('Invalid export file: missing "character" key')
+        const { id: _id, campaign_id: _cid, ...fields } = parsed.character as Character
+        onUpdate(character.id, fields)
+        updateCharacter(character.id, fields)
+        addToast('Character imported successfully', 'success')
+      } catch (err) {
+        addToast(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
+      }
+      // Reset the input so the same file can be re-imported
+      if (importFileRef.current) importFileRef.current.value = ''
+    }
+    reader.readAsText(file)
+  }
+
   // XP calculations
   const xp = character.xp ?? 0
   const xpLevel = getLevel(xp)
@@ -230,6 +312,73 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill,
             Prof +{proficiencyBonus(character.level)}
           </span>
         </div>
+
+        {/* AC / Speed / Initiative row */}
+        <div className="cs-combat-stats-row" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+          <label className="cs-combat-stat-label" title="Armor Class">
+            <span style={{ fontSize: '0.65rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>AC</span>
+            <input
+              type="number"
+              min={0}
+              max={30}
+              value={combatStats.ac}
+              onChange={e => handleCombatStatChange('ac', parseInt(e.target.value) || 0)}
+              onBlur={e => handleCombatStatChange('ac', parseInt(e.target.value) || 0)}
+              style={{ width: 44, textAlign: 'center', fontSize: '0.8rem', padding: '0.1rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 3, color: 'var(--text-primary)', marginLeft: '0.25rem' }}
+            />
+          </label>
+          <label className="cs-combat-stat-label" title="Speed">
+            <span style={{ fontSize: '0.65rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Speed</span>
+            <input
+              type="number"
+              min={0}
+              max={120}
+              step={5}
+              value={combatStats.speed}
+              onChange={e => handleCombatStatChange('speed', parseInt(e.target.value) || 0)}
+              onBlur={e => handleCombatStatChange('speed', parseInt(e.target.value) || 0)}
+              style={{ width: 44, textAlign: 'center', fontSize: '0.8rem', padding: '0.1rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 3, color: 'var(--text-primary)', marginLeft: '0.25rem' }}
+            />
+            <span style={{ fontSize: '0.65rem', color: 'var(--color-muted)', marginLeft: '0.1rem' }}>ft.</span>
+          </label>
+          <label className="cs-combat-stat-label" title="Initiative Bonus">
+            <span style={{ fontSize: '0.65rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Initiative</span>
+            <input
+              type="number"
+              min={-10}
+              max={20}
+              value={combatStats.initiative_bonus}
+              onChange={e => handleCombatStatChange('initiative_bonus', parseInt(e.target.value) || 0)}
+              onBlur={e => handleCombatStatChange('initiative_bonus', parseInt(e.target.value) || 0)}
+              style={{ width: 44, textAlign: 'center', fontSize: '0.8rem', padding: '0.1rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 3, color: 'var(--text-primary)', marginLeft: '0.25rem' }}
+            />
+          </label>
+        </div>
+
+        {/* Export / Import buttons (owner only) */}
+        {isOwner && (
+          <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+            <button
+              onClick={handleExportCharacter}
+              className="btn-ghost btn-sm"
+              title="Export character as JSON"
+              style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}
+            >⬇ Export</button>
+            <button
+              onClick={handleImportClick}
+              className="btn-ghost btn-sm"
+              title="Import character from JSON"
+              style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}
+            >⬆ Import</button>
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".json"
+              style={{ display: 'none' }}
+              onChange={handleImportFile}
+            />
+          </div>
+        )}
 
         {/* Saving Throws */}
         <div style={{ marginTop: '0.5rem' }}>

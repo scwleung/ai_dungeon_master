@@ -95,6 +95,9 @@ export interface Character {
   audit_log?: Array<{ timestamp: string; change: string }>
   hit_dice_remaining?: number
   exhaustion?: number
+  ac?: number
+  speed?: number
+  initiative_bonus?: number
   bonds?: string
   ideals?: string
   flaws?: string

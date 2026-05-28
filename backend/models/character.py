@@ -9,10 +9,40 @@ Pydantic schemas:
     CharacterResponse — output schema returned by the characters API.
     CharacterUpdate   — partial-update schema (PATCH semantics; all fields optional).
 
-JSON storage note: ``stats`` (dict), ``inventory`` (list[str]), and
-``conditions`` (list[str]) are stored as JSON strings in SQLite.  The
-``parse_json_fields`` validator deserialises them when building response objects,
-and the ``update_character`` endpoint re-serialises them on write.
+JSON storage note: ``stats`` (dict), ``inventory`` (list[str]), ``conditions``,
+``spell_slots``, ``currency``, ``spellbook``, ``languages``,
+``tool_proficiencies``, ``features``, and ``audit_log`` are stored as JSON
+strings in SQLite / PostgreSQL.  The ``parse_json_fields`` validator deserialises
+them when building response objects, and write endpoints re-serialise them on
+save.
+
+``conditions`` may contain either plain strings (e.g. ``"Poisoned"``) or
+objects of the form ``{"name": str, "duration": str}`` when a duration is
+relevant to the condition.
+
+New columns added after initial schema creation (applied via ALTER TABLE in
+``backend/main.py`` lifespan):
+    bonds, ideals, flaws, personality  — character backstory text fields.
+    languages          — JSON list of known languages.
+    tool_proficiencies — JSON list of tool proficiency strings.
+    features           — JSON list of class feature objects:
+                         ``[{id, name, description, uses_remaining, uses_max, recharge}]``.
+                         The ``feature_use`` field in ``CharacterUpdate`` accepts
+                         ``{feature_id, delta}`` to atomically adjust ``uses_remaining``.
+    hit_dice_remaining — Integer; decremented when a hit die is spent during a short rest.
+    exhaustion         — Integer 0–6 (0 = none, 6 = death).
+    currency           — JSON dict: ``{"gp": int, "sp": int, "cp": int, "ep": int, "pp": int}``.
+    spellbook          — JSON list of spell objects: ``[{name, level, prepared}]``.
+    audit_log          — JSON list of timestamped change records (read-only via GET endpoint);
+                         capped at 200 entries.
+    death_saves        — JSON dict: ``{"successes": int, "failures": int}``.
+    concentration      — String name of the spell being concentrated on, or ``null``.
+    inspiration        — Integer (0 or 1); surfaced as boolean in ``CharacterResponse``.
+    xp                 — Integer; total accumulated experience points.
+    spell_slots        — JSON dict keyed by slot level (``"1"``–``"9"``), values
+                         ``{"max": int, "used": int}``.
+    resources          — JSON dict of class resource objects keyed by snake_case name,
+                         values ``{"label": str, "max": int, "used": int}``.
 """
 
 import json
@@ -49,9 +79,34 @@ class Character(Base):
         stats: JSON-serialised ability-score dict
             ``{"STR": int, "DEX": int, "CON": int, "INT": int, "WIS": int, "CHA": int}``.
         inventory: JSON-serialised list of item name strings.
-        conditions: JSON-serialised list of active condition strings
-            (e.g. ``["Poisoned", "Prone"]``).
+        conditions: JSON-serialised list of active condition strings or objects.
+            Simple form: ``["Poisoned", "Prone"]``.
+            Extended form: ``[{"name": "Poisoned", "duration": "1 minute"}, ...]``.
         notes: Free-text field for backstory, session notes, etc.
+        spell_slots: JSON dict keyed by slot level (``"1"``–``"9"``),
+            values ``{"max": int, "used": int}``.  ``None`` for non-spellcasters.
+        resources: JSON dict of class resource objects keyed by snake_case name,
+            values ``{"label": str, "max": int, "used": int}``.  ``None`` if unused.
+        xp: Total accumulated experience points.
+        death_saves: JSON dict ``{"successes": int, "failures": int}``.
+        concentration: String name of the spell being concentrated on, or ``None``.
+        inspiration: Integer (0 or 1); surfaced as boolean in ``CharacterResponse``.
+        currency: JSON dict ``{"gp": int, "sp": int, "cp": int, "ep": int, "pp": int}``.
+        spellbook: JSON list of spell objects ``[{"name": str, "level": int, "prepared": bool}]``.
+        audit_log: JSON list of change records
+            ``[{"timestamp": str, "change": str}]``; capped at 200 entries; read-only.
+        hit_dice_remaining: Number of hit dice remaining for short rests.
+        exhaustion: Exhaustion level 0–6 (0 = none, 6 = death).
+        bonds: Character bonds free-text.
+        ideals: Character ideals free-text.
+        flaws: Character flaws free-text.
+        personality: Character personality traits free-text.
+        languages: JSON list of known languages (e.g. ``["Common", "Elvish"]``).
+        tool_proficiencies: JSON list of tool proficiency strings.
+        features: JSON list of class feature objects
+            ``[{id, name, description, uses_remaining, uses_max, recharge}]``.
+            The ``feature_use`` payload ``{feature_id, delta}`` atomically adjusts
+            ``uses_remaining``.
         campaign: Back-reference to the parent ``Campaign`` object.
     """
 

@@ -2,7 +2,31 @@
 WebSocket session hub for the AI Dungeon Master application.
 
 Manages connections grouped by session room, tracks which player is behind
-each socket, and provides broadcasting / per-player targeting helpers.
+each socket, and provides broadcasting, per-socket targeting, and spectator
+management helpers.
+
+Key methods:
+  broadcast(session_id, message, exclude_ws?)
+      Send a JSON message to all WebSockets in a session room.  Used for
+      game events (DM narration, combat updates, dice results, etc.).
+
+  send_to_socket(ws, message)
+      Send a JSON message to one specific WebSocket object.  Used for
+      DM-only messages such as ``secret_roll_result`` that must never be
+      broadcast to other players.
+
+  send_to_player(session_id, player_id, message)
+      Send a JSON message to the socket registered for a given player_id.
+      Used to deliver ``dice_request`` directly to the targeted player.
+
+  mark_spectator(ws)
+      Flag a WebSocket as read-only.  Spectators receive all broadcast
+      messages but are silently blocked from sending actions
+      (``player_action``, ``voice_transcript``, ``dice_image``,
+      ``manual_roll``, ``dice_result``).
+
+  is_spectator(ws)
+      Return True if the given WebSocket was marked as spectator-only.
 """
 
 from __future__ import annotations

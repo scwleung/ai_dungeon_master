@@ -6,8 +6,18 @@ database.  Persistent data (messages, character HP/inventory, world state)
 is written to the DB through the router/WebSocket handler.
 
 Classes:
-  Combatant         — A single participant in a combat encounter (name, HP,
-                      initiative, conditions, optional character_id).
+  Combatant         — A single participant in a combat encounter.
+                      Core fields: name, initiative, hp_current, hp_max,
+                      is_player, character_id, conditions (list[str]).
+                      Extended fields added for 5e mechanics:
+                        legendary_actions_remaining (int) — current legendary
+                          action uses available this round; toggled via the
+                          ``combat_legendary_action`` WebSocket message.
+                        legendary_actions_max (int) — maximum legendary actions
+                          per round (0 for non-legendary creatures).
+                        reaction_used (bool) — True when the combatant has spent
+                          their reaction this round; set via ``combat_use_reaction``
+                          and cleared by ``combat_reset_reactions`` WS messages.
   CombatState       — Full combat snapshot: active flag, round number, turn
                       index, and ordered combatant list.  advance() cycles
                       turns and increments the round counter automatically.

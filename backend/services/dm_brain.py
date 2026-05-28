@@ -121,7 +121,8 @@ INSTRUCTIONS:
 - Use `start_combat` when a fight begins (list all combatants sorted by initiative), `next_turn` after each action, `end_combat` when resolved
 - Use `upsert_npc` whenever you introduce or update a named NPC so they are tracked consistently across sessions
 - Use `upsert_quest` when players accept, complete, or fail a quest to keep the quest log accurate
-- Use `generate_scene_image` when players arrive at a striking new location or a dramatic moment calls for visual atmosphere"""
+- Use `generate_scene_image` when players arrive at a striking new location or a dramatic moment calls for visual atmosphere
+- When a character casts a spell, call `update_character` with `spell_slots` to deduct the used slot level (e.g., if a 2nd-level spell is cast, decrement `spell_slots["2"]` by 1)"""
 
 # ---------------------------------------------------------------------------
 # Tool definitions
@@ -462,14 +463,22 @@ class DungeonMaster:
       campaign data, world state, character roster, and dungeon map status.
     * **Streaming narration** — yields text chunks from Claude in real time
       while transparently handling multi-turn tool-use loops.
-    * **Five Claude tools** exposed to the model:
+    * **Twelve Claude tools** exposed to the model:
         - ``roll_dice`` — DM-side secret or visible dice rolls.
         - ``request_player_roll`` — suspends generation until a specific
           player submits a result through the WebSocket.
-        - ``update_character`` — mutates HP, inventory, and conditions in the DB.
+        - ``update_character`` — mutates HP, inventory, conditions, spell slots,
+          and other character fields in the DB.
         - ``update_world_state`` — persists key/value facts about the world.
         - ``reveal_area`` — lifts fog of war on a dungeon room and broadcasts
           a ``map_update`` WebSocket message to all players.
+        - ``start_combat`` — initialises a combat encounter with combatants.
+        - ``next_turn`` — advances the initiative order.
+        - ``end_combat`` — clears the active combat state.
+        - ``upsert_npc`` — adds or updates an NPC in the campaign registry.
+        - ``upsert_quest`` — adds or updates a quest in the campaign log.
+        - ``update_party_state`` — updates shared party gold and inventory.
+        - ``generate_scene_image`` — generates an atmospheric scene illustration.
     * **Context summarisation** — condenses older session messages into a
       compact narrative summary via ``summarize_history`` (claude-haiku).
     * **Vision-based dice detection** — reads a camera frame and returns the

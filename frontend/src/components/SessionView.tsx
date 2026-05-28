@@ -28,6 +28,11 @@ import SpellReference from './SpellReference'
 import MagicItems from './MagicItems'
 import Equipment from './Equipment'
 import ToastProvider from './ToastProvider'
+import { WorldStateViewer } from './WorldStateViewer'
+import { TrapGenerator } from './TrapGenerator'
+import { NPCRelationships } from './NPCRelationships'
+import { PersonalNotes } from './PersonalNotes'
+import { SpellQuickCast } from './SpellQuickCast'
 
 /**
  * Root layout for an active play session.
@@ -127,6 +132,10 @@ export function SessionView() {
   const [showMagicItems, setShowMagicItems] = useState(false)
   const [showEquipment, setShowEquipment] = useState(false)
   const [showSecretRolls, setShowSecretRolls] = useState(false)
+  const [showWorldState, setShowWorldState] = useState(false)
+  const [showTrapGen, setShowTrapGen] = useState(false)
+  const [showNpcRelationships, setShowNpcRelationships] = useState(false)
+  const [showPersonalNotes, setShowPersonalNotes] = useState(false)
   const [sceneInput, setSceneInput] = useState('')
   const [showSceneInput, setShowSceneInput] = useState(false)
   const [secretDice, setSecretDice] = useState('1d20')
@@ -425,6 +434,34 @@ export function SessionView() {
           )}
           {isDM && !isSpectator && (
             <button className="btn-ghost btn-sm" onClick={() => setShowEquipment(true)}>⚔ Equipment</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className={`btn-ghost btn-sm ${showWorldState ? 'active' : ''}`}
+              onClick={() => setShowWorldState(v => !v)}
+              title="Toggle world state viewer"
+            >🌍 World</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className={`btn-ghost btn-sm ${showTrapGen ? 'active' : ''}`}
+              onClick={() => setShowTrapGen(v => !v)}
+              title="Toggle trap/puzzle/shop generator"
+            >🪤 Traps</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className={`btn-ghost btn-sm ${showNpcRelationships ? 'active' : ''}`}
+              onClick={() => setShowNpcRelationships(v => !v)}
+              title="Toggle NPC relationship web"
+            >🕸 NPC Web</button>
+          )}
+          {!isDM && !isSpectator && (
+            <button
+              className={`btn-ghost btn-sm ${showPersonalNotes ? 'active' : ''}`}
+              onClick={() => setShowPersonalNotes(v => !v)}
+              title="Toggle private notes"
+            >🔒 Notes</button>
           )}
           {isDM && !isSpectator && (
             <button className="btn-ghost btn-sm" onClick={() => setShowSceneInput(v => !v)}>🎬 Scene</button>
@@ -791,6 +828,48 @@ export function SessionView() {
                 sendAction(`Rolling ${skill} check (${sign}${mod})`)
               }}
             />
+            {myCharacter.spellbook && myCharacter.spellbook.some(s => s.prepared) && !isSpectator && (
+              <div style={{ borderTop: '1px solid var(--border)', overflow: 'hidden auto', flexShrink: 0 }}>
+                <SpellQuickCast
+                  character={myCharacter}
+                  onCast={(text) => sendAction(text)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Right Panel: World State Viewer (DM) */}
+        {isDM && !isSpectator && showWorldState && activeCampaign && (
+          <div className="dm-side-panel">
+            <WorldStateViewer
+              campaignId={Number(activeCampaign.id)}
+              isDM={isDM}
+            />
+          </div>
+        )}
+
+        {/* Right Panel: Trap/Puzzle/Shop Generator (DM) */}
+        {isDM && !isSpectator && showTrapGen && activeCampaign && (
+          <div className="dm-side-panel">
+            <TrapGenerator campaignId={Number(activeCampaign.id)} />
+          </div>
+        )}
+
+        {/* Right Panel: NPC Relationships (DM) */}
+        {isDM && !isSpectator && showNpcRelationships && activeCampaign && (
+          <div className="dm-side-panel">
+            <NPCRelationships
+              campaignId={Number(activeCampaign.id)}
+              isDM={isDM}
+            />
+          </div>
+        )}
+
+        {/* Right Panel: Personal Notes (players) */}
+        {!isDM && !isSpectator && showPersonalNotes && (
+          <div className="dm-side-panel">
+            <PersonalNotes />
           </div>
         )}
       </div>
@@ -1388,6 +1467,28 @@ export function SessionView() {
           border-radius: var(--radius);
           max-width: 360px;
           width: 90vw;
+        }
+
+        .dm-side-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        @media (max-width: 900px) {
+          .dm-side-panel {
+            position: fixed;
+            top: var(--header-height);
+            right: 0;
+            bottom: 0;
+            width: min(var(--sidebar-width), 100vw);
+            z-index: 200;
+            box-shadow: -4px 0 20px var(--shadow-lg);
+          }
         }
       `}</style>
     </div>

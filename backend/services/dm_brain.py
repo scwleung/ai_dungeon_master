@@ -489,8 +489,10 @@ class DungeonMaster:
     mutable state.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, campaign_id: Optional[str] = None, ruleset: Optional[str] = None) -> None:
         self.client = AsyncAnthropic()
+        self.campaign_id = campaign_id
+        self.ruleset = ruleset
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -911,6 +913,72 @@ class DungeonMaster:
             pass
         lines = [ln.strip().lstrip("0123456789.-) ").strip("\"'") for ln in text.split("\n") if ln.strip()]
         return [ln for ln in lines if ln][:count]
+
+    async def generate_trap(self, cr: float, location: str) -> dict:
+        """Generate a D&D 5e trap appropriate for the given CR and location."""
+        resp = await self.client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Generate a D&D 5e trap for CR {cr} in a {location}. "
+                    "Respond with ONLY valid JSON: "
+                    "{\"name\": str, \"trigger\": str, \"effect\": str, \"save\": str, \"damage\": str, \"dc\": int, \"disarm_dc\": int}"
+                ),
+            }],
+        )
+        text = resp.content[0].text.strip()
+        try:
+            import re
+            m = re.search(r'\{.*\}', text, re.DOTALL)
+            return json.loads(m.group()) if m else {"name": "Trap", "trigger": text, "effect": "", "save": "DEX", "damage": "2d6", "dc": 13, "disarm_dc": 15}
+        except Exception:
+            return {"name": "Trap", "trigger": text, "effect": "", "save": "DEX", "damage": "2d6", "dc": 13, "disarm_dc": 15}
+
+    async def generate_puzzle(self, difficulty: str, theme: str) -> dict:
+        """Generate a puzzle appropriate for the theme and difficulty."""
+        resp = await self.client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Generate a {difficulty} {theme} puzzle for a D&D dungeon. "
+                    "Respond with ONLY valid JSON: "
+                    "{\"name\": str, \"description\": str, \"clues\": [str], \"solution\": str, \"reward\": str}"
+                ),
+            }],
+        )
+        text = resp.content[0].text.strip()
+        try:
+            import re
+            m = re.search(r'\{.*\}', text, re.DOTALL)
+            return json.loads(m.group()) if m else {"name": "Puzzle", "description": text, "clues": [], "solution": "", "reward": ""}
+        except Exception:
+            return {"name": "Puzzle", "description": text, "clues": [], "solution": "", "reward": ""}
+
+    async def generate_shop(self, settlement_size: str, shop_type: str) -> list[dict]:
+        """Generate shop inventory appropriate for the settlement and shop type."""
+        resp = await self.client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Generate inventory for a {shop_type} in a {settlement_size} D&D settlement. "
+                    "Respond with ONLY a valid JSON array of 6-10 items: "
+                    "[{\"name\": str, \"price_gp\": number, \"description\": str}]"
+                ),
+            }],
+        )
+        text = resp.content[0].text.strip()
+        try:
+            import re
+            m = re.search(r'\[.*\]', text, re.DOTALL)
+            return json.loads(m.group()) if m else []
+        except Exception:
+            return []
 
     # ------------------------------------------------------------------
     # Vision: dice detection

@@ -749,19 +749,23 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill,
             <p className="cs-empty">No active conditions.</p>
           ) : (
             <div className="conditions-list">
-              {character.conditions.map((cond, i) => (
-                <span key={i} className="condition-badge">
-                  {cond}
-                  <button
-                    className="condition-remove"
-                    onClick={() => handleRemoveCondition(i)}
-                    title={`Remove ${cond}`}
-                    aria-label={`Remove condition ${cond}`}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
+              {character.conditions.map((cond, i) => {
+                const name = typeof cond === 'string' ? cond : cond.name
+                const dur = typeof cond === 'string' ? null : cond.duration
+                return (
+                  <span key={i} className="condition-badge" title={dur !== null ? `${dur} turn(s) remaining` : ''}>
+                    {name}{dur !== null ? ` (${dur})` : ''}
+                    <button
+                      className="condition-remove"
+                      onClick={() => handleRemoveCondition(i)}
+                      title={`Remove ${name}`}
+                      aria-label={`Remove condition ${name}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                )
+              })}
             </div>
           )}
           <form onSubmit={handleAddCondition} className="add-row">

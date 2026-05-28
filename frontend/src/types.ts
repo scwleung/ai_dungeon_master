@@ -46,6 +46,19 @@ export interface NarrativeMessage {
   timestamp: string
 }
 
+/**
+ * A single condition entry — either a plain name string or an object carrying
+ * an optional turn-based duration counter.
+ */
+export type Condition = string | { name: string; duration: number | null }
+
+/**
+ * Extract the display name from a Condition value regardless of its shape.
+ */
+export function conditionName(c: Condition): string {
+  return typeof c === 'string' ? c : c.name
+}
+
 /** Full character record belonging to a player in a campaign. */
 export interface Character {
   /** Unique identifier for the character. */
@@ -77,8 +90,8 @@ export interface Character {
   }
   /** List of items the character is carrying. */
   inventory: string[]
-  /** Active status effects or conditions (e.g. "Poisoned", "Prone"). */
-  conditions: string[]
+  /** Active status effects or conditions (e.g. "Poisoned", "Prone"); supports optional duration. */
+  conditions: Condition[]
   /** Free-form notes about backstory, personality, or special abilities. */
   notes: string
   /** Per-level spell slot state; keys are slot levels '1'–'9'. */
@@ -450,8 +463,8 @@ export interface Combatant {
   is_player: boolean
   /** Character UUID if the combatant is a player character; null otherwise. */
   character_id: string | null
-  /** Active status conditions (e.g. "Poisoned"). */
-  conditions: string[]
+  /** Active status conditions (e.g. "Poisoned"); supports optional turn-based duration. */
+  conditions: Array<string | { name: string; duration: number | null }>
   legendary_actions_remaining?: number
   legendary_actions_max?: number
   reaction_used?: boolean

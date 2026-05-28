@@ -112,6 +112,14 @@ export const api = {
       request<void>('DELETE', `/api/campaigns/${campaignId}/readalouds/${id}`),
     generateNames: (campaignId: string, data: { race: string; count?: number }) =>
       request<{ campaign_id: string; names: string[] }>('POST', `/api/campaigns/${campaignId}/generate-names`, data),
+    getTables: (campaignId: number) =>
+      request<unknown>('GET', `/campaigns/${campaignId}/tables`),
+    createTable: (campaignId: number, table: { name: string; dice: string; entries: string[] }) =>
+      request<unknown>('POST', `/campaigns/${campaignId}/tables`, table),
+    rollTable: (campaignId: number, tableId: string) =>
+      request<unknown>('POST', `/campaigns/${campaignId}/tables/${tableId}/roll`),
+    deleteTable: (campaignId: number, tableId: string) =>
+      request<unknown>('DELETE', `/campaigns/${campaignId}/tables/${tableId}`),
   },
 
   /** Session lifecycle operations scoped to a campaign. */
@@ -135,6 +143,9 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes }),
       }).then((r) => r.json()) as Promise<{ session_id: string; notes: string }>,
+    /** Generate a recap for a session. */
+    generateRecap: (sessionId: number) =>
+      request<unknown>('POST', `/sessions/${sessionId}/recap`),
   },
 
   /** Character CRUD operations scoped to a campaign. */

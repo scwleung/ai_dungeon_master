@@ -3,12 +3,15 @@ import { api } from '../api/client'
 import { useGameStore } from '../store/gameStore'
 import type { Character } from '../types'
 import LevelUpWizard from './LevelUpWizard'
+import { FeatureTracker } from './FeatureTracker'
 
 interface Props {
   character: Character
   onUpdate: (id: string, updates: Partial<Character>) => void
   onSendAction?: (text: string) => void
   onRollSkill?: (skill: string, modifier: number) => void
+  isGameMaster?: boolean
+  onSendFeatureUse?: (characterId: string, featureId: string, delta: number) => void
 }
 
 function proficiencyBonus(level: number): number {
@@ -99,8 +102,9 @@ function Section({
  *                   from the Zustand store.
  * @param onSendAction - Optional callback to send a player action text to the DM.
  */
-export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill }: Props) {
-  const { updateCharacter } = useGameStore()
+export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill, isGameMaster, onSendFeatureUse }: Props) {
+  const { updateCharacter, settings } = useGameStore()
+  const isOwner = isGameMaster || character.player_name === settings.playerName
   const [newItem, setNewItem] = useState('')
   const [newCondition, setNewCondition] = useState('')
   const [editingHp, setEditingHp] = useState(false)
@@ -114,6 +118,7 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill 
   const [newSpellLevel, setNewSpellLevel] = useState(0)
   const [showHistory, setShowHistory] = useState(false)
   const [auditLog, setAuditLog] = useState<Array<{ timestamp: string; change: string }>>(character.audit_log ?? [])
+  const [activeTab, setActiveTab] = useState<'main' | 'features' | 'traits'>('main')
 
   // Detect level-up when XP changes
   useEffect(() => {
@@ -435,10 +440,89 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill 
         )}
       </div>
 
+      {/* Tab Bar */}
+      <div className="cs-tab-bar tab-bar">
+        <button
+          className={`cs-tab ${activeTab === 'main' ? 'cs-tab--active' : ''}`}
+          onClick={() => setActiveTab('main')}
+        >Stats</button>
+        <button
+          className={`cs-tab ${activeTab === 'features' ? 'cs-tab--active' : ''}`}
+          onClick={() => setActiveTab('features')}
+        >Features</button>
+        <button
+          className={`cs-tab ${activeTab === 'traits' ? 'cs-tab--active' : ''}`}
+          onClick={() => setActiveTab('traits')}
+        >Traits</button>
+      </div>
+
       <div className="cs-body">
+        {/* Features Tab */}
+        {activeTab === 'features' && (
+          <div style={{ padding: 'var(--space-3) var(--space-4)' }}>
+            <FeatureTracker
+              character={character}
+              isOwner={isOwner}
+              onUse={(featureId, delta) => {
+                if (onSendFeatureUse) {
+                  onSendFeatureUse(character.id, featureId, delta)
+                } else {
+                  // local optimistic update
+                  const updatedFeatures = (character.features ?? []).map(f =>
+                    f.id === featureId
+                      ? { ...f, uses_remaining: Math.max(0, Math.min(f.uses_max, f.uses_remaining + delta)) }
+                      : f
+                  )
+                  update({ features: updatedFeatures })
+                }
+              }}
+              onAddFeature={(feat) => {
+                update({ features: [...(character.features ?? []), feat] })
+              }}
+            />
+          </div>
+        )}
+
+        {/* Traits Tab */}
+        {activeTab === 'traits' && (
+          <div style={{ padding: 'var(--space-3) var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            {(['personality', 'ideals', 'bonds', 'flaws'] as const).map(field => {
+              const labels: Record<string, string> = {
+                personality: 'Personality Traits',
+                ideals: 'Ideals',
+                bonds: 'Bonds',
+                flaws: 'Flaws',
+              }
+              return (
+                <div key={field}>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 'var(--space-1)' }}>
+                    {labels[field]}
+                  </div>
+                  {isOwner ? (
+                    <textarea
+                      defaultValue={character[field] ?? ''}
+                      onBlur={e => update({ [field]: e.target.value })}
+                      placeholder={`Enter ${labels[field].toLowerCase()}...`}
+                      rows={3}
+                      style={{ fontSize: 'var(--font-size-sm)', resize: 'vertical' }}
+                    />
+                  ) : (
+                    <p style={{ fontSize: 'var(--font-size-sm)', color: character[field] ? 'var(--text-secondary)' : 'var(--text-muted)', fontStyle: character[field] ? 'normal' : 'italic' }}>
+                      {character[field] ?? `No ${labels[field].toLowerCase()} recorded.`}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Main Tab */}
+        {activeTab === 'main' && <>
+
         {/* Ability Scores */}
         <Section title="Ability Scores">
-          <div className="cs-stats-grid">
+          <div className="cs-stats-grid character-sheet-grid">
             {STAT_KEYS.map((stat) => {
               const score = character.stats[stat]
               const mod = calcModifier(score)
@@ -450,6 +534,37 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill 
                 </div>
               )
             })}
+          </div>
+          {/* Passive Perception */}
+          <div style={{ marginTop: 'var(--space-2)', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+            <span>
+              Passive Perception:{' '}
+              <strong style={{ color: 'var(--text-primary)' }}>
+                {10 + Math.floor(((character.stats?.WIS ?? 10) - 10) / 2) + proficiencyBonus(character.level)}
+              </strong>
+            </span>
+            <span>
+              Prof Bonus:{' '}
+              <strong style={{ color: 'var(--accent)' }}>+{proficiencyBonus(character.level)}</strong>
+            </span>
+          </div>
+        </Section>
+
+        {/* Languages & Tool Proficiencies */}
+        <Section title="Languages & Tools" defaultOpen={false}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+            <div>
+              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Languages: </span>
+              <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
+                {(character.languages ?? []).length > 0 ? character.languages!.join(', ') : <em style={{ color: 'var(--text-muted)' }}>None recorded</em>}
+              </span>
+            </div>
+            <div>
+              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Tool Proficiencies: </span>
+              <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
+                {(character.tool_proficiencies ?? []).length > 0 ? character.tool_proficiencies!.join(', ') : <em style={{ color: 'var(--text-muted)' }}>None recorded</em>}
+              </span>
+            </div>
           </div>
         </Section>
 
@@ -843,6 +958,8 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill 
             </div>
           )}
         </Section>
+
+        </> /* end activeTab === 'main' */ }
       </div>
 
       <style>{`
@@ -1320,6 +1437,43 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill 
 
         .rest-btn {
           flex: 1;
+        }
+
+        /* Tab bar */
+        .cs-tab-bar {
+          display: flex;
+          border-bottom: 1px solid var(--border);
+          background: var(--bg-secondary);
+          flex-shrink: 0;
+        }
+
+        .cs-tab {
+          flex: 1;
+          padding: var(--space-2);
+          font-size: var(--font-size-xs);
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          background: transparent;
+          border: none;
+          border-bottom: 2px solid transparent;
+          color: var(--text-muted);
+          cursor: pointer;
+          transition: color var(--transition), border-color var(--transition);
+          border-radius: 0;
+          min-height: unset;
+        }
+
+        .cs-tab:hover {
+          color: var(--text-primary);
+          background: transparent;
+          border-color: transparent;
+          border-bottom-color: var(--border);
+        }
+
+        .cs-tab--active {
+          color: var(--accent) !important;
+          border-bottom-color: var(--accent) !important;
         }
       `}</style>
     </div>

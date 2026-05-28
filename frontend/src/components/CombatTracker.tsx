@@ -4,6 +4,19 @@ import { useGameStore } from '../store/gameStore'
 import type { Combatant } from '../types'
 import { ConditionReference } from './ConditionReference'
 
+const STAT_BLOCKS: Record<string, { ac: number; speed: string; cr: string; abilities: string }> = {
+  'Goblin': { ac: 15, speed: '30 ft.', cr: '1/4', abilities: 'Nimble Escape, Scimitar +4 (2d6+2)' },
+  'Orc': { ac: 13, speed: '30 ft.', cr: '1/2', abilities: 'Aggressive, Greataxe +5 (1d12+3)' },
+  'Skeleton': { ac: 13, speed: '30 ft.', cr: '1/4', abilities: 'Shortsword +4 (1d6+2), Shortbow +4 (1d6+2)' },
+  'Zombie': { ac: 8, speed: '20 ft.', cr: '1/4', abilities: 'Undead Fortitude, Slam +3 (1d6+1)' },
+  'Wolf': { ac: 13, speed: '40 ft.', cr: '1/4', abilities: 'Pack Tactics, Bite +4 (2d4+2) + Prone DC 11' },
+  'Bandit': { ac: 12, speed: '30 ft.', cr: '1/8', abilities: 'Scimitar +3 (1d6+1), Crossbow +3 (1d6+1)' },
+  'Guard': { ac: 16, speed: '30 ft.', cr: '1/8', abilities: 'Spear +3 (1d6+1)' },
+  'Giant Spider': { ac: 14, speed: '30 ft., climb 30 ft.', cr: '1', abilities: 'Web Sense, Bite +5 (1d8+3) + Poison DC 11' },
+  'Ogre': { ac: 11, speed: '40 ft.', cr: '2', abilities: 'Greatclub +6 (2d8+4), Javelin +6 (2d6+4)' },
+  'Troll': { ac: 15, speed: '30 ft.', cr: '5', abilities: 'Regeneration 10 HP/turn, Multiattack, Claw +7 (2d6+4)' },
+}
+
 /**
  * Real-time combat initiative tracker.
  *
@@ -14,7 +27,19 @@ import { ConditionReference } from './ConditionReference'
  * When a session is active, exposes REST controls: Next Turn, End Combat,
  * per-combatant Remove, and an Add Combatant form.
  */
-export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: boolean }) {
+export function CombatTracker({
+  onClose,
+  isDM,
+  onUseReaction,
+  onResetReactions,
+  onLegendaryAction,
+}: {
+  onClose: () => void
+  isDM: boolean
+  onUseReaction?: (name: string) => void
+  onResetReactions?: () => void
+  onLegendaryAction?: (name: string, delta: number) => void
+}) {
   const { combatActive, combatRound, combatTurnIndex, combatants, activeSession } = useGameStore()
   const sessionId = activeSession?.id ?? null
 
@@ -190,7 +215,16 @@ export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: bo
               if (!sessionId) return
               try { await api.combat.rollInitiative(sessionId) } catch (e) { console.error(e) }
             }}
+            aria-label="Roll initiative for all combatants"
           >🎲 Roll Initiative</button>
+          {onResetReactions && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={onResetReactions}
+              title="Reset all reactions"
+              aria-label="Reset all reactions"
+            >⚡ Reset Reactions</button>
+          )}
         </div>
       )}
 
@@ -236,6 +270,8 @@ export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: bo
             sessionId={sessionId}
             isDM={isDM}
             onRemove={handleRemoveCombatant}
+            onUseReaction={onUseReaction}
+            onLegendaryAction={onLegendaryAction}
           />
         ))}
       </div>
@@ -338,16 +374,22 @@ function CombatantRow({
   sessionId,
   isDM,
   onRemove,
+  onUseReaction,
+  onLegendaryAction,
 }: {
   combatant: Combatant
   isActive: boolean
   sessionId: string | null
   isDM: boolean
   onRemove: (name: string) => void
+  onUseReaction?: (name: string) => void
+  onLegendaryAction?: (name: string, delta: number) => void
 }) {
   const hpPct = combatant.hp_max > 0 ? (combatant.hp_current / combatant.hp_max) * 100 : 0
   const hpClass = hpPct > 50 ? 'high' : hpPct > 25 ? 'mid' : 'low'
   const [editingHP, setEditingHP] = useState<{ name: string; delta: string } | null>(null)
+  const [showStatBlock, setShowStatBlock] = useState(false)
+  const statBlock = STAT_BLOCKS[combatant.name] ?? null
 
   return (
     <div className={`combat-row ${isActive ? 'combat-row--active' : ''} ${combatant.is_player ? 'combat-row--player' : 'combat-row--enemy'}`}>
@@ -359,7 +401,28 @@ function CombatantRow({
           {isActive && <span className="turn-arrow">▶ </span>}
           {combatant.name}
           {combatant.is_player && <span className="pc-badge">PC</span>}
+          {statBlock && (
+            <button
+              onClick={() => setShowStatBlock(v => !v)}
+              style={{ marginLeft: 4, fontSize: '0.65rem', padding: '0 3px', background: 'none', border: '1px solid var(--color-border,#333)', borderRadius: 3, cursor: 'pointer', color: 'var(--color-muted,#888)' }}
+              aria-label={`Show stat block for ${combatant.name}`}
+            >ℹ</button>
+          )}
+          {onUseReaction && isDM && (
+            <button
+              onClick={() => !combatant.reaction_used && onUseReaction(combatant.name)}
+              title={combatant.reaction_used ? 'Reaction used' : 'Use reaction'}
+              aria-label={`${combatant.reaction_used ? 'Reaction used' : 'Use reaction'} for ${combatant.name}`}
+              style={{ marginLeft: 4, fontSize: '0.65rem', padding: '0 3px', background: 'none', border: '1px solid var(--color-border,#333)', borderRadius: 3, cursor: combatant.reaction_used ? 'default' : 'pointer', color: combatant.reaction_used ? 'var(--color-muted,#888)' : 'var(--color-accent,#c4820a)', opacity: combatant.reaction_used ? 0.4 : 1 }}
+            >⚡</button>
+          )}
         </div>
+        {showStatBlock && statBlock && (
+          <div style={{ fontSize: '0.72rem', padding: '0.25rem 0.5rem', background: 'var(--color-bg,#0d0d1a)', border: '1px solid var(--color-accent,#c4820a)', borderRadius: 4, margin: '0.2rem 0', color: 'var(--color-text,#e0d6c8)' }}>
+            <strong>AC</strong> {statBlock.ac} · <strong>Speed</strong> {statBlock.speed} · <strong>CR</strong> {statBlock.cr}<br/>
+            <span style={{ color: 'var(--color-muted,#aaa)' }}>{statBlock.abilities}</span>
+          </div>
+        )}
         {combatant.conditions.length > 0 && (
           <div className="combat-conditions">
             {combatant.conditions.map((cond) => (
@@ -413,6 +476,18 @@ function CombatantRow({
             style={{ width: `${Math.max(0, Math.min(100, hpPct))}%` }}
           />
         </div>
+        {(combatant.legendary_actions_max ?? 0) > 0 && onLegendaryAction && (
+          <div style={{ fontSize: '0.72rem', marginTop: '0.2rem', color: 'var(--color-accent,#c4820a)' }}>
+            {'◆'.repeat(combatant.legendary_actions_remaining ?? 0)}{'◇'.repeat((combatant.legendary_actions_max ?? 0) - (combatant.legendary_actions_remaining ?? 0))}
+            {isDM && (
+              <button
+                onClick={() => onLegendaryAction(combatant.name, (combatant.legendary_actions_max ?? 0) - (combatant.legendary_actions_remaining ?? 0))}
+                style={{ marginLeft: 4, fontSize: '0.65rem', padding: '0 3px', background: 'none', border: '1px solid var(--color-border,#333)', borderRadius: 3, cursor: 'pointer', color: 'var(--color-muted,#888)' }}
+                aria-label={`Reset legendary actions for ${combatant.name}`}
+              >↺</button>
+            )}
+          </div>
+        )}
       </div>
       {sessionId && isDM && (
         <button

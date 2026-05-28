@@ -95,6 +95,20 @@ export interface Character {
   audit_log?: Array<{ timestamp: string; change: string }>
   hit_dice_remaining?: number
   exhaustion?: number
+  bonds?: string
+  ideals?: string
+  flaws?: string
+  personality?: string
+  languages?: string[]
+  tool_proficiencies?: string[]
+  features?: Array<{
+    id: string
+    name: string
+    description: string
+    uses_remaining: number
+    uses_max: number
+    recharge: 'short' | 'long' | 'none'
+  }>
 }
 
 /** Shape required to create a new character (id and campaign_id are assigned by the server). */
@@ -435,6 +449,9 @@ export interface Combatant {
   character_id: string | null
   /** Active status conditions (e.g. "Poisoned"). */
   conditions: string[]
+  legendary_actions_remaining?: number
+  legendary_actions_max?: number
+  reaction_used?: boolean
 }
 
 /** Server push carrying the full combat tracker state. */

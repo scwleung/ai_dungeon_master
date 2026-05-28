@@ -520,5 +520,21 @@ export function useWebSocket(sessionId: string | null) {
     [send]
   )
 
-  return { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate, sendOOC, sendReadyCheck, sendReadyResponse, sendSecretRoll, sendSceneMarker }
+  const sendUseReaction = useCallback((name: string) => {
+    send({ type: 'combat_use_reaction' as any, name } as any)
+  }, [send])
+
+  const sendResetReactions = useCallback(() => {
+    send({ type: 'combat_reset_reactions' as any } as any)
+  }, [send])
+
+  const sendLegendaryAction = useCallback((name: string, delta = -1) => {
+    send({ type: 'combat_legendary_action' as any, name, delta } as any)
+  }, [send])
+
+  const sendFeatureUse = useCallback((characterId: string, featureId: string, delta = -1) => {
+    send({ type: 'update_character' as any, character_id: characterId, feature_use: { feature_id: featureId, delta } } as any)
+  }, [send])
+
+  return { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate, sendOOC, sendReadyCheck, sendReadyResponse, sendSecretRoll, sendSceneMarker, sendUseReaction, sendResetReactions, sendLegendaryAction, sendFeatureUse }
 }

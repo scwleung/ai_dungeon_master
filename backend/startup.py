@@ -5,6 +5,9 @@ Contains the ALTER TABLE statements run on every application start to
 idempotently add new columns to the database schema.  Each statement is
 wrapped in its own try/except so that columns that already exist are silently
 skipped.
+
+Alembic is also configured for schema migrations (`alembic upgrade head`). The
+ALTER TABLE statements here serve as a fallback for existing databases.
 """
 
 from __future__ import annotations

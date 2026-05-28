@@ -8,7 +8,7 @@ is written to the DB through the router/WebSocket handler.
 Classes:
   Combatant         — A single participant in a combat encounter.
                       Core fields: name, initiative, hp_current, hp_max,
-                      is_player, character_id, conditions (list[str]).
+                      is_player, character_id, conditions (list, str or dict).
                       Extended fields added for 5e mechanics:
                         legendary_actions_remaining (int) — current legendary
                           action uses available this round; toggled via the
@@ -45,7 +45,7 @@ class Combatant:
     hp_max: int
     is_player: bool = False
     character_id: Optional[str] = None
-    conditions: list[str] = field(default_factory=list)
+    conditions: list = field(default_factory=list)
     legendary_actions_remaining: int = 0
     legendary_actions_max: int = 0
     reaction_used: bool = False
@@ -77,12 +77,29 @@ class CombatState:
             return None
         return self.combatants[self.turn_index % len(self.combatants)]
 
+    def _tick_conditions(self) -> None:
+        """Decrement duration on timed conditions; remove those that reach 0."""
+        for combatant in self.combatants:
+            new_conditions = []
+            for cond in combatant.conditions:
+                if isinstance(cond, dict):
+                    duration = cond.get("duration")
+                    if duration is None:
+                        new_conditions.append(cond)  # permanent
+                    elif duration > 1:
+                        new_conditions.append({**cond, "duration": duration - 1})
+                    # duration == 1 → expires, drop it
+                else:
+                    new_conditions.append(cond)  # plain string, no duration
+            combatant.conditions = new_conditions
+
     def advance(self) -> None:
         if not self.combatants:
             return
         self.turn_index = (self.turn_index + 1) % len(self.combatants)
         if self.turn_index == 0:
             self.round += 1
+        self._tick_conditions()
 
     def to_dict(self) -> dict:
         return {

@@ -850,6 +850,48 @@ async def generate_loot_endpoint(campaign_id: str, payload: LootRequest):
     return {"campaign_id": campaign_id, "items": items}
 
 
+@router.post("/{campaign_id}/trap")
+async def generate_trap(campaign_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+    campaign = await db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404)
+    from backend.services.dm_brain import DungeonMaster
+    dm = DungeonMaster(campaign_id=campaign_id, ruleset=campaign.ruleset)
+    result = await dm.generate_trap(
+        cr=float(body.get("cr", 1)),
+        location=body.get("location", "dungeon corridor")
+    )
+    return result
+
+
+@router.post("/{campaign_id}/puzzle")
+async def generate_puzzle(campaign_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+    campaign = await db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404)
+    from backend.services.dm_brain import DungeonMaster
+    dm = DungeonMaster(campaign_id=campaign_id, ruleset=campaign.ruleset)
+    result = await dm.generate_puzzle(
+        difficulty=body.get("difficulty", "medium"),
+        theme=body.get("theme", "arcane")
+    )
+    return result
+
+
+@router.post("/{campaign_id}/shop")
+async def generate_shop(campaign_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+    campaign = await db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404)
+    from backend.services.dm_brain import DungeonMaster
+    dm = DungeonMaster(campaign_id=campaign_id, ruleset=campaign.ruleset)
+    result = await dm.generate_shop(
+        settlement_size=body.get("settlement_size", "town"),
+        shop_type=body.get("shop_type", "general store")
+    )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # DM private notes endpoints
 # ---------------------------------------------------------------------------

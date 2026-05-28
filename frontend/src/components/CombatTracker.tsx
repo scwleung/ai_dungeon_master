@@ -425,9 +425,19 @@ function CombatantRow({
         )}
         {combatant.conditions.length > 0 && (
           <div className="combat-conditions">
-            {combatant.conditions.map((cond) => (
-              <span key={cond} className="condition-tag">{cond}</span>
-            ))}
+            {combatant.conditions.map((cond, i) => {
+              const name = typeof cond === 'string' ? cond : cond.name
+              const dur = typeof cond === 'string' ? null : cond.duration
+              return (
+                <span
+                  key={`${name}-${i}`}
+                  className="condition-tag"
+                  title={dur !== null ? `${dur} turn(s) remaining` : ''}
+                >
+                  {name}{dur !== null ? ` (${dur})` : ''}
+                </span>
+              )
+            })}
           </div>
         )}
       </div>

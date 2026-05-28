@@ -120,6 +120,16 @@ export const api = {
       request<unknown>('POST', `/campaigns/${campaignId}/tables/${tableId}/roll`),
     deleteTable: (campaignId: number, tableId: string) =>
       request<unknown>('DELETE', `/campaigns/${campaignId}/tables/${tableId}`),
+    getWorldState: (id: number) =>
+      request<Record<string, unknown>>('GET', `/api/campaigns/${id}/world-state`),
+    updateWorldState: (id: number, state: Record<string, unknown>) =>
+      request<Record<string, unknown>>('PUT', `/api/campaigns/${id}/world-state`, state),
+    generateTrap: (id: number, body: { cr: number; location: string }) =>
+      request<unknown>('POST', `/api/campaigns/${id}/trap`, body),
+    generatePuzzle: (id: number, body: { difficulty: string; theme: string }) =>
+      request<unknown>('POST', `/api/campaigns/${id}/puzzle`, body),
+    generateShop: (id: number, body: { settlement_size: string; shop_type: string }) =>
+      request<unknown>('POST', `/api/campaigns/${id}/shop`, body),
   },
 
   /** Session lifecycle operations scoped to a campaign. */

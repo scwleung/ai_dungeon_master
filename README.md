@@ -607,6 +607,16 @@ npm test          # watch mode
 npm run test:run  # single pass (CI)
 ```
 
+### E2E (Playwright)
+
+```bash
+cd frontend
+npm run build    # or: npm run dev in a separate terminal
+npm run e2e      # runs all tests in frontend/e2e/
+```
+
+Tests mock all API responses, so no running backend is required.
+
 ---
 
 ## Multiplayer Setup

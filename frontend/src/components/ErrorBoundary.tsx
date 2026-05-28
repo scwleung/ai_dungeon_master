@@ -1,6 +1,6 @@
 import { Component, type ReactNode, type ErrorInfo } from 'react'
 
-interface Props { children: ReactNode }
+interface Props { children: ReactNode; onReset?: () => void }
 interface State { error: Error | null }
 
 export default class ErrorBoundary extends Component<Props, State> {
@@ -12,6 +12,11 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[ErrorBoundary]', error, info)
+  }
+
+  handleReset = () => {
+    this.props.onReset?.()
+    this.setState({ error: null })
   }
 
   render() {
@@ -28,7 +33,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             {this.state.error.message}
           </p>
           <button
-            onClick={() => this.setState({ error: null })}
+            onClick={this.handleReset}
             style={{
               padding: '0.4rem 1rem', background: 'var(--color-accent)',
               color: 'var(--color-bg)', border: 'none', borderRadius: 4, cursor: 'pointer',

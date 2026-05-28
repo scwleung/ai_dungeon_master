@@ -1,4 +1,4 @@
-import { useEffect, lazy, Suspense } from 'react'
+import { useEffect, lazy, Suspense, useState } from 'react'
 import { useGameStore } from './store/gameStore'
 import { Header } from './components/Header'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -15,6 +15,7 @@ import './themes/minimal.css'
 
 export default function App() {
   const { view, settings, loadCampaigns, storeCampaignToken, setActiveCampaign, setView, joinAsSpectator } = useGameStore()
+  const [lazyKey, setLazyKey] = useState(0)
 
   // Apply the saved theme on mount and whenever settings.theme changes
   useEffect(() => {
@@ -62,7 +63,7 @@ export default function App() {
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <ErrorBoundary>
+    <ErrorBoundary onReset={() => setLazyKey(k => k + 1)}>
       <div className="app-root">
         {view !== 'session' && <Header />}
 
@@ -73,7 +74,7 @@ export default function App() {
         )}
 
         <main className="app-main">
-          <Suspense fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'var(--color-muted,#888)'}}>Loading...</div>}>
+          <Suspense key={lazyKey} fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'var(--color-muted,#888)'}}>Loading...</div>}>
             {view === 'campaigns' && <CampaignList />}
             {view === 'campaign_detail' && <CampaignDetail />}
             {view === 'session' && <SessionView />}

@@ -17,15 +17,19 @@ export function SpellQuickCast({ character, onCast }: SpellQuickCastProps) {
   // Local spell-slot state (optimistic copy of character.spell_slots)
   const [localSlots, setLocalSlots] = useState<Record<string, { max: number; used: number }>>(
     () => {
+      const rawSlots = character.spell_slots
+      if (!rawSlots || typeof rawSlots !== 'object') return {}
       const slots: Record<string, { max: number; used: number }> = {}
-      for (const [lvl, slot] of Object.entries(character.spell_slots ?? {})) {
+      for (const [lvl, slot] of Object.entries(rawSlots)) {
         slots[lvl] = { ...slot }
       }
       return slots
     },
   )
 
-  if (preparedSpells.length === 0) return null
+  if (preparedSpells.length === 0) {
+    return <div style={{ color: 'var(--color-muted,#888)', fontSize: '0.85rem', padding: '0.5rem' }}>No prepared spells.</div>
+  }
 
   // Group by level
   const grouped: Record<number, typeof preparedSpells> = {}

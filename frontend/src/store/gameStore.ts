@@ -518,7 +518,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // Dice log
   diceLog: (() => {
     try {
-      return JSON.parse(localStorage.getItem('diceLog') ?? '[]').slice(-50) as DiceLogEntry[]
+      return JSON.parse(localStorage.getItem('diceLog') ?? '[]').slice(0, 50) as DiceLogEntry[]
     } catch {
       return []
     }

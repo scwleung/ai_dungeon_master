@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import { useGameStore } from '../store/gameStore'
 
 interface WorldStateViewerProps {
   campaignId: number
@@ -12,6 +13,7 @@ interface WorldStateViewerProps {
  * DMs can add, inline-edit, and delete entries. Changes are saved via PUT.
  */
 export function WorldStateViewer({ campaignId, isDM }: WorldStateViewerProps) {
+  const { activeCampaign } = useGameStore()
   const [worldState, setWorldState] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -39,6 +41,13 @@ export function WorldStateViewer({ campaignId, isDM }: WorldStateViewerProps) {
       })
       .finally(() => setLoading(false))
   }, [campaignId])
+
+  // Sync world state from the store whenever the DM brain updates it via WebSocket
+  useEffect(() => {
+    if (activeCampaign?.world_state && Object.keys(activeCampaign.world_state).length > 0) {
+      setWorldState({ ...activeCampaign.world_state })
+    }
+  }, [activeCampaign?.world_state])
 
   async function handleSave(updated: Record<string, string>) {
     setSaving(true)

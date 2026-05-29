@@ -56,14 +56,15 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from sqlalchemy import text
 
-from backend.database import AsyncSessionLocal, init_db
+from backend.database import AsyncSessionLocal, async_engine, init_db
 from backend.models.campaign import Campaign
 from backend.models.campaign import Session as GameSession
+from backend.models.campaign import SessionMessage
 from backend.models.character import Character
 from backend.models.roll_result import roll_dice, RollResult
 from backend.routers import campaigns, characters, tts as tts_router
@@ -80,6 +81,12 @@ _rl_store: dict[str, deque] = defaultdict(deque)
 _RL_LIMIT = 60
 _RL_WINDOW = 60.0
 
+# Campaign+character cache — avoids a DB round-trip on every player action.
+# Entries expire after CAMPAIGN_CACHE_TTL seconds or are explicitly invalidated
+# after any tool call that mutates campaign data (NPCs, quests, world state).
+_campaign_cache: dict[str, tuple] = {}
+CAMPAIGN_CACHE_TTL = 30.0
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -95,8 +102,7 @@ async def lifespan(app: FastAPI):
             "Copy .env.example to .env and fill in the values."
         )
     await init_db()
-    async with AsyncSessionLocal() as db:
-        await run_migrations(db)
+    await run_migrations(async_engine)
     yield
     await session_hub.close_all()
 
@@ -194,30 +200,27 @@ async def _save_message_to_db(
     text: str,
     player_name: Optional[str] = None,
 ) -> None:
-    """Append a message to the session's messages JSON column."""
+    """Insert a single message row into session_messages (O(1) write)."""
     async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(GameSession).where(GameSession.id == session_id)
+        # Determine next sequence number for this session
+        seq_result = await db.execute(
+            select(func.coalesce(func.max(SessionMessage.seq), -1)).where(
+                SessionMessage.session_id == session_id
+            )
         )
-        session = result.scalar_one_or_none()
-        if session is None:
-            return
+        next_seq: int = (seq_result.scalar() or -1) + 1
 
-        try:
-            messages: list[dict] = json.loads(session.messages)
-        except (json.JSONDecodeError, TypeError):
-            messages = []
-
-        messages.append(
-            {
-                "id": str(uuid.uuid4()),
-                "role": role,
-                "player_name": player_name,
-                "text": text,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
+        db.add(
+            SessionMessage(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                role=role,
+                player_name=player_name,
+                text=text,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                seq=next_seq,
+            )
         )
-        session.messages = json.dumps(messages)
         await db.commit()
 
 
@@ -251,19 +254,32 @@ async def _fetch_previous_session_summary(
 
         # Previous session has messages but no rolling-window summary yet —
         # generate one on demand and cache it.
-        try:
-            prev_messages: list[dict] = json.loads(prev.messages or "[]")
-        except (json.JSONDecodeError, TypeError):
-            return ""
-
-        if not prev_messages:
-            return ""
-
-        conversation_text = "\n".join(
-            f"{m.get('role', 'user').upper()}: {m.get('text', '').strip()}"
-            for m in prev_messages
-            if m.get("text", "").strip()
+        # Try new session_messages table first; fall back to legacy JSON blob
+        prev_msg_result = await db.execute(
+            select(SessionMessage)
+            .where(SessionMessage.session_id == prev.id)
+            .order_by(SessionMessage.seq)
         )
+        prev_msg_rows = list(prev_msg_result.scalars().all())
+
+        if prev_msg_rows:
+            conversation_text = "\n".join(
+                f"{m.role.upper()}: {m.text.strip()}"
+                for m in prev_msg_rows
+                if m.text.strip()
+            )
+        else:
+            try:
+                prev_messages: list[dict] = json.loads(prev.messages or "[]")
+            except (json.JSONDecodeError, TypeError):
+                return ""
+            if not prev_messages:
+                return ""
+            conversation_text = "\n".join(
+                f"{m.get('role', 'user').upper()}: {m.get('text', '').strip()}"
+                for m in prev_messages
+                if m.get("text", "").strip()
+            )
         if not conversation_text:
             return ""
 
@@ -302,18 +318,28 @@ async def _load_message_history(session_id: str) -> list[dict]:
         if session is None:
             return []
 
-        try:
-            messages: list[dict] = json.loads(session.messages)
-        except (json.JSONDecodeError, TypeError):
-            messages = []
-
         summary: str = session.session_summary or ""
 
-        # Fresh session with no history — inherit context from the previous session
-        if not messages and not summary:
-            inherited = await _fetch_previous_session_summary(
-                session.campaign_id, session_id
-            )
+        # Load messages from the normalised table
+        msg_result = await db.execute(
+            select(SessionMessage)
+            .where(SessionMessage.session_id == session_id)
+            .order_by(SessionMessage.seq)
+        )
+        db_messages = list(msg_result.scalars().all())
+
+        # Fall back to legacy JSON blob for sessions created before this migration
+        if not db_messages:
+            try:
+                legacy: list[dict] = json.loads(session.messages or "[]")
+            except (json.JSONDecodeError, TypeError):
+                legacy = []
+        else:
+            legacy = []
+
+        # Inherit context from the previous session on a brand-new empty session
+        if not db_messages and not legacy and not summary:
+            inherited = await _fetch_previous_session_summary(session.campaign_id, session_id)
             if inherited:
                 session.session_summary = inherited
                 summary = inherited
@@ -321,7 +347,6 @@ async def _load_message_history(session_id: str) -> list[dict]:
 
     history: list[dict] = []
 
-    # Prepend condensed context as a synthetic exchange Claude recognises
     if summary:
         history.append({
             "role": "user",
@@ -335,15 +360,17 @@ async def _load_message_history(session_id: str) -> list[dict]:
             ),
         })
 
-    # Convert recent messages to Claude API format
-    for msg in messages:
-        role = msg.get("role", "user")
-        text = msg.get("text", "")
-        # Map "system" → "user" for Claude API compatibility
+    messages_source = db_messages if db_messages else legacy
+    for msg in messages_source:
+        if isinstance(msg, SessionMessage):
+            role, text_content = msg.role, msg.text
+        else:
+            role = msg.get("role", "user")
+            text_content = msg.get("text", "")
         if role == "system":
             role = "user"
-        if role in ("user", "assistant") and text:
-            history.append({"role": role, "content": text})
+        if role in ("user", "assistant") and text_content:
+            history.append({"role": role, "content": text_content})
 
     return history
 
@@ -357,28 +384,34 @@ async def _maybe_summarize_session(session_id: str) -> None:
     messages.  Failure is silently swallowed so the game always continues.
     """
     async with AsyncSessionLocal() as db:
-        result = await db.execute(
+        count_result = await db.execute(
+            select(func.count()).where(SessionMessage.session_id == session_id)
+        )
+        total: int = count_result.scalar() or 0
+
+        if total <= SUMMARY_THRESHOLD:
+            return
+
+        session_result = await db.execute(
             select(GameSession).where(GameSession.id == session_id)
         )
-        session = result.scalar_one_or_none()
+        session = session_result.scalar_one_or_none()
         if session is None:
             return
 
-        try:
-            messages: list[dict] = json.loads(session.messages)
-        except (json.JSONDecodeError, TypeError):
-            return
+        all_msgs_result = await db.execute(
+            select(SessionMessage)
+            .where(SessionMessage.session_id == session_id)
+            .order_by(SessionMessage.seq)
+        )
+        all_msgs = list(all_msgs_result.scalars().all())
 
-        if len(messages) <= SUMMARY_THRESHOLD:
-            return
-
-        to_summarize = messages[:-SUMMARY_KEEP_RECENT]
-        to_keep = messages[-SUMMARY_KEEP_RECENT:]
+        to_summarize = all_msgs[:-SUMMARY_KEEP_RECENT]
 
         conversation_text = "\n".join(
-            f"{msg.get('role', 'user').upper()}: {msg.get('text', '').strip()}"
-            for msg in to_summarize
-            if msg.get("text", "").strip()
+            f"{m.role.upper()}: {m.text.strip()}"
+            for m in to_summarize
+            if m.text.strip()
         )
 
         try:
@@ -387,16 +420,24 @@ async def _maybe_summarize_session(session_id: str) -> None:
                 existing_summary=session.session_summary or "",
             )
             session.session_summary = new_summary
-            session.messages = json.dumps(to_keep)
+            for m in to_summarize:
+                await db.delete(m)
             await db.commit()
         except Exception:
-            pass  # non-fatal: next call will retry
+            pass
 
 
 async def _load_campaign_and_characters(
     campaign_id: str,
+    bypass_cache: bool = False,
 ) -> tuple[Optional[Campaign], list[Character]]:
-    """Load Campaign and its Characters from the DB."""
+    """Load Campaign and its Characters, using a short-lived in-memory cache."""
+    now = _time.monotonic()
+    if not bypass_cache:
+        cached = _campaign_cache.get(campaign_id)
+        if cached and (now - cached[2]) < CAMPAIGN_CACHE_TTL:
+            return cached[0], cached[1]
+
     async with AsyncSessionLocal() as db:
         campaign_result = await db.execute(
             select(Campaign)
@@ -405,9 +446,17 @@ async def _load_campaign_and_characters(
         )
         campaign = campaign_result.scalar_one_or_none()
         if campaign is None:
+            _campaign_cache.pop(campaign_id, None)
             return None, []
         characters = list(campaign.characters)
-        return campaign, characters
+
+    _campaign_cache[campaign_id] = (campaign, characters, now)
+    return campaign, characters
+
+
+def _invalidate_campaign_cache(campaign_id: str) -> None:
+    """Drop the cached campaign entry so the next load fetches fresh data."""
+    _campaign_cache.pop(campaign_id, None)
 
 
 async def _reveal_area_in_db(campaign_id: str, room_id: str) -> tuple[str, list[str]]:
@@ -728,16 +777,9 @@ async def websocket_endpoint(
             if not character_id:
                 return "Missing character_id for update_character tool."
 
-            summary = await update_character_in_db(character_id, tool_input)
+            summary, updated_char = await update_character_in_db(character_id, tool_input)
 
-            # Build a state_update payload to broadcast to all players
-            async with AsyncSessionLocal() as db:
-                char_result = await db.execute(
-                    select(Character).where(Character.id == character_id)
-                )
-                updated_char = char_result.scalar_one_or_none()
-
-            if updated_char:
+            if updated_char is not None:
                 from backend.models.character import CharacterResponse
                 char_data = CharacterResponse.model_validate(updated_char).model_dump()
                 await session_hub.broadcast(
@@ -753,6 +795,7 @@ async def websocket_endpoint(
             updates = tool_input.get("updates", {})
             if not updates:
                 return "No updates provided for update_world_state."
+            _invalidate_campaign_cache(campaign_id)
             return await _update_world_state_in_db(campaign_id, updates)
 
         elif tool_name == "reveal_area":
@@ -778,7 +821,12 @@ async def websocket_endpoint(
 
         elif tool_name == "next_turn":
             state = game_state_manager.advance_turn(session_id)
-            await session_hub.broadcast(session_id, {"type": "combat_update", **state.to_dict()})
+            await session_hub.broadcast(session_id, {
+                "type": "combat_update",
+                "active": True,
+                "round": state.round,
+                "turn_index": state.turn_index,
+            })
             current = state.current_combatant()
             return f"Round {state.round}, turn: {current.name if current else 'none'}."
 
@@ -793,6 +841,7 @@ async def websocket_endpoint(
             message, npcs = await _upsert_npc_in_db(campaign_id, tool_input)
             if npcs is not None:
                 await session_hub.broadcast(session_id, {"type": "npc_update", "npcs": npcs})
+            _invalidate_campaign_cache(campaign_id)
             return message
 
         elif tool_name == "upsert_quest":
@@ -801,6 +850,7 @@ async def websocket_endpoint(
             message, quests = await _upsert_quest_in_db(campaign_id, tool_input)
             if quests is not None:
                 await session_hub.broadcast(session_id, {"type": "quest_update", "quests": quests})
+            _invalidate_campaign_cache(campaign_id)
             return message
 
         elif tool_name == "update_party_state":
@@ -974,6 +1024,7 @@ async def websocket_endpoint(
                         message_history=history,
                         new_message=action_text,
                         on_tool_use=on_tool_use,
+                        in_combat=bool(game_state_manager._combat.get(session_id)),
                     ):
                         full_response_parts.append(chunk)
                         yield chunk

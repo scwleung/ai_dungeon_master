@@ -300,7 +300,8 @@ export function useWebSocket(sessionId: string | null) {
         }
 
         case 'combat_update': {
-          s.setCombatState(msg.active, msg.round, msg.turn_index, msg.combatants)
+          const existingCombatants = useGameStore.getState().combatants
+          s.setCombatState(msg.active, msg.round, msg.turn_index, msg.combatants ?? existingCombatants)
           break
         }
 

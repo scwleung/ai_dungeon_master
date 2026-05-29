@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useGameStore } from '../store/gameStore'
 import type { ThemeName } from '../types'
 
@@ -19,7 +20,7 @@ const THEMES: { name: ThemeName; label: string; icon: string }[] = [
  * No props are required — state is read from and written to the Zustand store.
  */
 export function ThemeSwitcher() {
-  const { settings, updateSettings } = useGameStore()
+  const { settings, updateSettings } = useGameStore(useShallow(s => ({ settings: s.settings, updateSettings: s.updateSettings })))
 
   function applyTheme(theme: ThemeName) {
     document.body.classList.remove('theme-fantasy', 'theme-hud', 'theme-minimal')

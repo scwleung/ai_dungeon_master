@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useGameStore } from '../store/gameStore'
 
 interface Props {
@@ -12,7 +13,9 @@ interface Props {
  * and broadcast to all clients via the `party_update` WebSocket message.
  */
 export function PartyPanel({ onClose, isDM }: Props) {
-  const { partyState, savePartyState, activeCampaign } = useGameStore()
+  const { partyState, savePartyState, activeCampaign } = useGameStore(
+    useShallow(s => ({ partyState: s.partyState, savePartyState: s.savePartyState, activeCampaign: s.activeCampaign }))
+  )
   const [goldInput, setGoldInput] = useState('')
   const [newItem, setNewItem] = useState('')
   const [saving, setSaving] = useState(false)

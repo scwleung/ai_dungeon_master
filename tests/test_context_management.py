@@ -28,20 +28,93 @@ def _make_messages(n: int) -> list[dict]:
     return msgs
 
 
+# -- Low-level mock-result builders ------------------------------------------
+
+
+def _scalar_one_or_none_result(value):
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = value
+    return r
+
+
+def _scalar_result(value):
+    r = MagicMock()
+    r.scalar.return_value = value
+    return r
+
+
+def _scalars_result(items):
+    scalars = MagicMock()
+    scalars.all.return_value = items
+    r = MagicMock()
+    r.scalars.return_value = scalars
+    return r
+
+
+# -- Higher-level helpers ----------------------------------------------------
+
+
 def _make_session_cm(messages: list[dict], summary: str | None = None):
-    """Return a mock AsyncSessionLocal context manager wrapping a fake session."""
+    """Mock for _load_message_history — always 2 db.execute calls.
+
+    Call 1: select(GameSession)  → scalar_one_or_none() → fake_session
+    Call 2: select(SessionMessage) → scalars().all() → [] (forces legacy JSON blob fallback)
+    """
     fake_session = MagicMock()
     fake_session.messages = json.dumps(messages)
     fake_session.session_summary = summary
     fake_session.campaign_id = "camp-1"
     fake_session.id = "sess-current"
 
-    exec_result = MagicMock()
-    exec_result.scalar_one_or_none.return_value = fake_session
+    async_db = AsyncMock()
+    async_db.execute = AsyncMock(side_effect=[
+        _scalar_one_or_none_result(fake_session),
+        _scalars_result([]),  # empty → code falls back to session.messages JSON blob
+    ])
+    async_db.commit = AsyncMock()
+
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=async_db)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    return cm, fake_session
+
+
+def _make_summarize_cm(n_count: int, messages: list[dict], summary: str | None = None):
+    """Mock for _maybe_summarize_session.
+
+    When n_count <= SUMMARY_THRESHOLD: 1 db.execute call (count only).
+    When n_count > SUMMARY_THRESHOLD: 3 db.execute calls (count, session, all messages).
+    Returns (cm, fake_session).
+    """
+    fake_session = MagicMock()
+    fake_session.messages = json.dumps(messages)
+    fake_session.session_summary = summary
+    fake_session.campaign_id = "camp-1"
+    fake_session.id = "sess-current"
+
+    count_result = _scalar_result(n_count)
+
+    if n_count <= SUMMARY_THRESHOLD:
+        side_effects = [count_result]
+    else:
+        fake_msg_objects = []
+        for i, m in enumerate(messages):
+            obj = MagicMock()
+            obj.role = m["role"]
+            obj.text = m["text"]
+            obj.seq = i
+            fake_msg_objects.append(obj)
+
+        side_effects = [
+            count_result,
+            _scalar_one_or_none_result(fake_session),
+            _scalars_result(fake_msg_objects),
+        ]
 
     async_db = AsyncMock()
-    async_db.execute = AsyncMock(return_value=exec_result)
+    async_db.execute = AsyncMock(side_effect=side_effects)
     async_db.commit = AsyncMock()
+    async_db.delete = AsyncMock()
 
     cm = MagicMock()
     cm.__aenter__ = AsyncMock(return_value=async_db)
@@ -54,14 +127,17 @@ def _make_cross_session_cm(
     prev_summary: str | None = None,
     prev_session_exists: bool = True,
 ):
-    """Return a mock for _fetch_previous_session_summary's AsyncSessionLocal call.
+    """Mock for _fetch_previous_session_summary.
 
-    The inner execute returns the previous session (or None) for the
-    'most recent prior session' query.
+    No prior session → 1 execute call returning None.
+    Prior session with summary → 1 execute call returning prev_session.
+    Prior session without summary → 2 execute calls (prev_session + empty SessionMessages).
+
+    Returns (cm, prev_session_or_None).
     """
     if not prev_session_exists:
-        exec_result = MagicMock()
-        exec_result.scalar_one_or_none.return_value = None
+        side_effects = [_scalar_one_or_none_result(None)]
+        prev_session = None
     else:
         prev_session = MagicMock()
         prev_session.messages = json.dumps(prev_messages)
@@ -69,17 +145,24 @@ def _make_cross_session_cm(
         prev_session.id = "sess-prev"
         prev_session.campaign_id = "camp-1"
 
-        exec_result = MagicMock()
-        exec_result.scalar_one_or_none.return_value = prev_session
+        if prev_summary:
+            side_effects = [_scalar_one_or_none_result(prev_session)]
+        else:
+            # No summary → code also queries session_messages (returns empty here,
+            # so it falls back to the legacy JSON blob on prev_session.messages)
+            side_effects = [
+                _scalar_one_or_none_result(prev_session),
+                _scalars_result([]),
+            ]
 
     async_db = AsyncMock()
-    async_db.execute = AsyncMock(return_value=exec_result)
+    async_db.execute = AsyncMock(side_effect=side_effects)
     async_db.commit = AsyncMock()
 
     cm = MagicMock()
     cm.__aenter__ = AsyncMock(return_value=async_db)
     cm.__aexit__ = AsyncMock(return_value=False)
-    return cm
+    return cm, prev_session
 
 
 # ---------------------------------------------------------------------------
@@ -105,10 +188,8 @@ async def test_load_message_history_no_summary_correct_roles():
 
 
 async def test_load_message_history_session_not_found_returns_empty():
-    exec_result = MagicMock()
-    exec_result.scalar_one_or_none.return_value = None
     async_db = AsyncMock()
-    async_db.execute = AsyncMock(return_value=exec_result)
+    async_db.execute = AsyncMock(return_value=_scalar_one_or_none_result(None))
     cm = MagicMock()
     cm.__aenter__ = AsyncMock(return_value=async_db)
     cm.__aexit__ = AsyncMock(return_value=False)
@@ -170,10 +251,10 @@ async def test_load_message_history_system_role_mapped_to_user():
 
 async def test_maybe_summarize_does_nothing_when_below_threshold():
     msgs = _make_messages(SUMMARY_THRESHOLD)  # exactly at threshold, not over
-    cm, session = _make_session_cm(msgs)
+    cm, session = _make_summarize_cm(SUMMARY_THRESHOLD, msgs)
     with patch("backend.main.AsyncSessionLocal", return_value=cm):
         await _maybe_summarize_session("sess-4")
-    # messages should be unchanged
+    # no summarization should have occurred
     assert session.messages == json.dumps(msgs)
 
 
@@ -184,7 +265,7 @@ async def test_maybe_summarize_does_nothing_when_below_threshold():
 
 async def test_maybe_summarize_calls_summarize_history_when_over_threshold():
     msgs = _make_messages(SUMMARY_THRESHOLD + 5)
-    cm, _ = _make_session_cm(msgs)
+    cm, _ = _make_summarize_cm(SUMMARY_THRESHOLD + 5, msgs)
     with (
         patch("backend.main.AsyncSessionLocal", return_value=cm),
         patch.object(dm, "summarize_history", new_callable=AsyncMock, return_value="Summary text") as mock_sum,
@@ -195,20 +276,20 @@ async def test_maybe_summarize_calls_summarize_history_when_over_threshold():
 
 async def test_maybe_summarize_keeps_recent_messages():
     msgs = _make_messages(SUMMARY_THRESHOLD + 5)
-    cm, session = _make_session_cm(msgs)
+    cm, _ = _make_summarize_cm(SUMMARY_THRESHOLD + 5, msgs)
     with (
         patch("backend.main.AsyncSessionLocal", return_value=cm),
         patch.object(dm, "summarize_history", new_callable=AsyncMock, return_value="Summary text"),
     ):
         await _maybe_summarize_session("sess-6")
-    kept = json.loads(session.messages)
-    assert len(kept) == SUMMARY_KEEP_RECENT
-    assert kept == msgs[-SUMMARY_KEEP_RECENT:]
+    # old rows beyond SUMMARY_KEEP_RECENT should have been deleted
+    expected_deletes = (SUMMARY_THRESHOLD + 5) - SUMMARY_KEEP_RECENT
+    assert cm.__aenter__.return_value.delete.await_count == expected_deletes
 
 
 async def test_maybe_summarize_stores_summary_text():
     msgs = _make_messages(SUMMARY_THRESHOLD + 5)
-    cm, session = _make_session_cm(msgs)
+    cm, session = _make_summarize_cm(SUMMARY_THRESHOLD + 5, msgs)
     with (
         patch("backend.main.AsyncSessionLocal", return_value=cm),
         patch.object(dm, "summarize_history", new_callable=AsyncMock, return_value="Epic summary."),
@@ -219,7 +300,7 @@ async def test_maybe_summarize_stores_summary_text():
 
 async def test_maybe_summarize_commits_db():
     msgs = _make_messages(SUMMARY_THRESHOLD + 5)
-    cm, _ = _make_session_cm(msgs)
+    cm, _ = _make_summarize_cm(SUMMARY_THRESHOLD + 5, msgs)
     with (
         patch("backend.main.AsyncSessionLocal", return_value=cm),
         patch.object(dm, "summarize_history", new_callable=AsyncMock, return_value="Summary."),
@@ -230,7 +311,7 @@ async def test_maybe_summarize_commits_db():
 
 async def test_maybe_summarize_passes_existing_summary_to_summarize_history():
     msgs = _make_messages(SUMMARY_THRESHOLD + 5)
-    cm, _ = _make_session_cm(msgs, summary="Old summary.")
+    cm, _ = _make_summarize_cm(SUMMARY_THRESHOLD + 5, msgs, summary="Old summary.")
     with (
         patch("backend.main.AsyncSessionLocal", return_value=cm),
         patch.object(dm, "summarize_history", new_callable=AsyncMock, return_value="New summary.") as mock_sum,
@@ -242,7 +323,7 @@ async def test_maybe_summarize_passes_existing_summary_to_summarize_history():
 
 async def test_maybe_summarize_swallows_summarize_history_exception():
     msgs = _make_messages(SUMMARY_THRESHOLD + 5)
-    cm, _ = _make_session_cm(msgs)
+    cm, _ = _make_summarize_cm(SUMMARY_THRESHOLD + 5, msgs)
     with (
         patch("backend.main.AsyncSessionLocal", return_value=cm),
         patch.object(dm, "summarize_history", new_callable=AsyncMock, side_effect=RuntimeError("API down")),
@@ -252,10 +333,12 @@ async def test_maybe_summarize_swallows_summarize_history_exception():
 
 
 async def test_maybe_summarize_does_nothing_when_session_not_found():
-    exec_result = MagicMock()
-    exec_result.scalar_one_or_none.return_value = None
+    # count > threshold so we proceed past the early-return, but session lookup returns None
     async_db = AsyncMock()
-    async_db.execute = AsyncMock(return_value=exec_result)
+    async_db.execute = AsyncMock(side_effect=[
+        _scalar_result(SUMMARY_THRESHOLD + 1),
+        _scalar_one_or_none_result(None),
+    ])
     cm = MagicMock()
     cm.__aenter__ = AsyncMock(return_value=async_db)
     cm.__aexit__ = AsyncMock(return_value=False)
@@ -283,14 +366,14 @@ def test_summary_keep_recent_positive():
 
 
 async def test_fetch_previous_no_prior_session_returns_empty():
-    cm = _make_cross_session_cm([], prev_session_exists=False)
+    cm, _ = _make_cross_session_cm([], prev_session_exists=False)
     with patch("backend.main.AsyncSessionLocal", return_value=cm):
         result = await _fetch_previous_session_summary("camp-1", "sess-current")
     assert result == ""
 
 
 async def test_fetch_previous_returns_existing_summary():
-    cm = _make_cross_session_cm([], prev_summary="The party slew the troll.")
+    cm, _ = _make_cross_session_cm([], prev_summary="The party slew the troll.")
     with patch("backend.main.AsyncSessionLocal", return_value=cm):
         result = await _fetch_previous_session_summary("camp-1", "sess-current")
     assert result == "The party slew the troll."
@@ -298,7 +381,7 @@ async def test_fetch_previous_returns_existing_summary():
 
 async def test_fetch_previous_generates_summary_from_messages():
     prev_msgs = _make_messages(4)
-    cm = _make_cross_session_cm(prev_msgs, prev_summary=None)
+    cm, _ = _make_cross_session_cm(prev_msgs, prev_summary=None)
     with (
         patch("backend.main.AsyncSessionLocal", return_value=cm),
         patch.object(dm, "summarize_history", new_callable=AsyncMock, return_value="Generated summary."),
@@ -309,8 +392,7 @@ async def test_fetch_previous_generates_summary_from_messages():
 
 async def test_fetch_previous_caches_generated_summary_on_prev_session():
     prev_msgs = _make_messages(4)
-    cm = _make_cross_session_cm(prev_msgs, prev_summary=None)
-    prev_session_obj = cm.__aenter__.return_value.execute.return_value.scalar_one_or_none.return_value
+    cm, prev_session_obj = _make_cross_session_cm(prev_msgs, prev_summary=None)
     with (
         patch("backend.main.AsyncSessionLocal", return_value=cm),
         patch.object(dm, "summarize_history", new_callable=AsyncMock, return_value="Cached."),
@@ -320,7 +402,7 @@ async def test_fetch_previous_caches_generated_summary_on_prev_session():
 
 
 async def test_fetch_previous_empty_prev_messages_returns_empty():
-    cm = _make_cross_session_cm([], prev_summary=None)
+    cm, _ = _make_cross_session_cm([], prev_summary=None)
     with patch("backend.main.AsyncSessionLocal", return_value=cm):
         result = await _fetch_previous_session_summary("camp-1", "sess-current")
     assert result == ""
@@ -328,7 +410,7 @@ async def test_fetch_previous_empty_prev_messages_returns_empty():
 
 async def test_fetch_previous_swallows_summarize_exception():
     prev_msgs = _make_messages(4)
-    cm = _make_cross_session_cm(prev_msgs, prev_summary=None)
+    cm, _ = _make_cross_session_cm(prev_msgs, prev_summary=None)
     with (
         patch("backend.main.AsyncSessionLocal", return_value=cm),
         patch.object(dm, "summarize_history", new_callable=AsyncMock, side_effect=RuntimeError("down")),

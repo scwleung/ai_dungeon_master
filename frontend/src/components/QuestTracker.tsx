@@ -23,7 +23,7 @@ const STATUS_BADGE_CLASS: Record<Quest['status'], string> = {
 }
 
 export function QuestTracker({ onClose }: { onClose: () => void }) {
-  const { quests } = useGameStore()
+  const quests = useGameStore(s => s.quests)
 
   const grouped = STATUS_ORDER.reduce<Record<Quest['status'], Quest[]>>(
     (acc, status) => {

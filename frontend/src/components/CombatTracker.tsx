@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { api } from '../api/client'
 import { useGameStore } from '../store/gameStore'
 import type { Combatant } from '../types'
@@ -40,7 +41,9 @@ export function CombatTracker({
   onResetReactions?: () => void
   onLegendaryAction?: (name: string, delta: number) => void
 }) {
-  const { combatActive, combatRound, combatTurnIndex, combatants, activeSession } = useGameStore()
+  const { combatActive, combatRound, combatTurnIndex, combatants, activeSession } = useGameStore(
+    useShallow(s => ({ combatActive: s.combatActive, combatRound: s.combatRound, combatTurnIndex: s.combatTurnIndex, combatants: s.combatants, activeSession: s.activeSession }))
+  )
   const sessionId = activeSession?.id ?? null
 
   const [turnDuration, setTurnDuration] = useState(60)

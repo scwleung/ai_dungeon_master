@@ -57,7 +57,7 @@ async def test_generate_recap_success(client):
 
     mock_client = make_mock_anthropic("Previously on...")
 
-    with patch("anthropic.AsyncAnthropic", return_value=mock_client):
+    with patch("backend.routers.campaigns._anthropic_client", mock_client):
         r = await client.post(f"/api/campaigns/sessions/{session_id}/recap")
 
     assert r.status_code == 200
@@ -70,7 +70,7 @@ async def test_generate_recap_nonexistent_session(client):
     """POST recap on a nonexistent session returns 404."""
     mock_client = make_mock_anthropic()
 
-    with patch("anthropic.AsyncAnthropic", return_value=mock_client):
+    with patch("backend.routers.campaigns._anthropic_client", mock_client):
         r = await client.post("/api/campaigns/sessions/nonexistent-session-id-000/recap")
 
     assert r.status_code == 404
@@ -86,7 +86,7 @@ async def test_generate_recap_no_notes(client):
     recap_text = "No adventures yet, but the party is ready."
     mock_client = make_mock_anthropic(recap_text)
 
-    with patch("anthropic.AsyncAnthropic", return_value=mock_client):
+    with patch("backend.routers.campaigns._anthropic_client", mock_client):
         r = await client.post(f"/api/campaigns/sessions/{session_id}/recap")
 
     assert r.status_code == 200

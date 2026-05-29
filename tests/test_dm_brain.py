@@ -64,56 +64,56 @@ def make_dm() -> DungeonMaster:
 
 
 # ---------------------------------------------------------------------------
-# _build_system_prompt tests
+# _build_dynamic_context tests
 # ---------------------------------------------------------------------------
 
 
-def test_build_system_prompt_dnd5e_ruleset_name():
+def test_build_dynamic_context_dnd5e_ruleset_name():
     dm = make_dm()
-    prompt = dm._build_system_prompt(MockCampaign(), [])
+    prompt = dm._build_dynamic_context(MockCampaign(), [])
     assert "D&D 5th Edition" in prompt
 
 
-def test_build_system_prompt_dnd5e_contains_campaign_name():
+def test_build_dynamic_context_dnd5e_contains_campaign_name():
     dm = make_dm()
-    prompt = dm._build_system_prompt(MockCampaign(), [])
+    prompt = dm._build_dynamic_context(MockCampaign(), [])
     assert "Test Campaign" in prompt
 
 
-def test_build_system_prompt_dnd5e_contains_character_name():
+def test_build_dynamic_context_dnd5e_contains_character_name():
     dm = make_dm()
-    prompt = dm._build_system_prompt(MockCampaign(), [MockCharacter()])
+    prompt = dm._build_dynamic_context(MockCampaign(), [MockCharacter()])
     assert "Thorin" in prompt
 
 
-def test_build_system_prompt_dnd5e_contains_world_state_value():
+def test_build_dynamic_context_dnd5e_contains_world_state_value():
     dm = make_dm()
-    prompt = dm._build_system_prompt(MockCampaign(), [])
+    prompt = dm._build_dynamic_context(MockCampaign(), [])
     assert "The tavern" in prompt
 
 
-def test_build_system_prompt_pathfinder2e_ruleset_name():
+def test_build_dynamic_context_pathfinder2e_ruleset_name():
     dm = make_dm()
-    prompt = dm._build_system_prompt(MockCampaignPathfinder(), [])
+    prompt = dm._build_dynamic_context(MockCampaignPathfinder(), [])
     assert "Pathfinder 2nd Edition" in prompt
 
 
-def test_build_system_prompt_freeform_ruleset_name():
+def test_build_dynamic_context_freeform_ruleset_name():
     dm = make_dm()
-    prompt = dm._build_system_prompt(MockCampaignFreeform(), [])
+    prompt = dm._build_dynamic_context(MockCampaignFreeform(), [])
     assert "Freeform" in prompt
 
 
-def test_build_system_prompt_unknown_ruleset_falls_back_to_freeform():
+def test_build_dynamic_context_unknown_ruleset_falls_back_to_freeform():
     dm = make_dm()
-    prompt = dm._build_system_prompt(MockCampaignUnknownRuleset(), [])
+    prompt = dm._build_dynamic_context(MockCampaignUnknownRuleset(), [])
     # Unknown ruleset uses UNKNOWN_SYSTEM.upper() as name and freeform description
     assert "Narrative-first freeform" in prompt
 
 
-def test_build_system_prompt_empty_world_state_shows_no_state_message():
+def test_build_dynamic_context_empty_world_state_shows_no_state_message():
     dm = make_dm()
-    prompt = dm._build_system_prompt(MockCampaignFreeform(), [])
+    prompt = dm._build_dynamic_context(MockCampaignFreeform(), [])
     assert "No world state recorded yet" in prompt
 
 

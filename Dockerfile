@@ -1,5 +1,5 @@
 # ── Stage 1: build the React frontend ─────────────────────────────────────────
-FROM node:20-alpine AS frontend-build
+FROM --platform=linux/amd64 node:22-alpine AS frontend-build
 
 WORKDIR /app/frontend
 
@@ -13,7 +13,7 @@ RUN npm run build
 
 
 # ── Stage 2: production Python image ──────────────────────────────────────────
-FROM python:3.11-slim
+FROM --platform=linux/amd64 python:3.11-slim
 
 WORKDIR /app
 
@@ -31,6 +31,6 @@ COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 RUN mkdir -p /data
 
 # Expose the single application port
-EXPOSE 8000
+EXPOSE 8080
 
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8080"]

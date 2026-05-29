@@ -35,3 +35,7 @@ frontend/src/__tests__/
 *.swp
 .idea/
 .vscode/
+
+# Playwright e2e tests
+e2e/
+playwright.config.ts

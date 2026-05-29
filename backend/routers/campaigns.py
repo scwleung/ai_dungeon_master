@@ -37,6 +37,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from anthropic import AsyncAnthropic
+
 from backend.auth import require_campaign_access, require_session_access
 from backend.database import get_db
 from backend.models.campaign import (
@@ -51,6 +53,10 @@ from backend.services.map_generator import generate_dungeon
 from backend.ws.session_hub import session_hub
 
 router = APIRouter()
+
+# Shared Anthropic client — reused across all endpoints in this module so we
+# avoid opening a new HTTP connection on every request.
+_anthropic_client = AsyncAnthropic()
 
 
 # ---------------------------------------------------------------------------
@@ -1011,16 +1017,19 @@ class NameGenRequest(BaseModel):
 @router.post("/{campaign_id}/generate-names")
 async def generate_npc_names(campaign_id: str, payload: NameGenRequest):
     """Generate NPC names for the given race using Claude Haiku."""
-    from backend.services.dm_brain import DungeonMaster
-    dm_instance = DungeonMaster()
     prompt = (
         f"Generate exactly {payload.count} distinct fantasy NPC names for a {payload.race} "
         "in a D&D-style setting. Return ONLY a JSON array of name strings. "
         'Example: ["Aldric Vane", "Mira of the Stone", "Jorren Blackwell"]'
     )
-    response = await dm_instance.client.messages.create(
+    response = await _anthropic_client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=200,
+        system=[{
+            "type": "text",
+            "text": "You are a fantasy name generator. Respond with a JSON array of strings only.",
+            "cache_control": {"type": "ephemeral"},
+        }],
         messages=[{"role": "user", "content": prompt}],
     )
     text = response.content[0].text.strip()
@@ -1126,19 +1135,19 @@ async def generate_recap(session_id: str, db: AsyncSession = Depends(get_db)):
         else "No notes recorded for this session."
     )
 
-    from anthropic import AsyncAnthropic
-    client = AsyncAnthropic()
-    response = await client.messages.create(
+    response = await _anthropic_client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=512,
-        messages=[{
-            "role": "user",
-            "content": (
-                "Generate a 2-3 paragraph dramatic 'Previously on...' recap for a D&D session. "
-                "Write in second person ('The party...') as if narrating to players at the start "
-                "of the next session. Be evocative and engaging.\n\n" + context
+        system=[{
+            "type": "text",
+            "text": (
+                "You are a dramatic narrator for a tabletop RPG. Write vivid 'Previously on...' "
+                "recaps in second person ('The party...') as if narrating to players at the start "
+                "of the next session. Be evocative and engaging."
             ),
+            "cache_control": {"type": "ephemeral"},
         }],
+        messages=[{"role": "user", "content": context}],
     )
     recap_text = response.content[0].text if response.content else "No recap available."
     return {"recap": recap_text}

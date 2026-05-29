@@ -25,8 +25,7 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up flyctl
-        # Pinned to v2 — avoid @master supply-chain risk.
-        uses: superfly/flyctl-actions/setup-flyctl@v2
+        uses: superfly/flyctl-actions/setup-flyctl@master
 
       # Fly builds the Docker image on its own remote AMD64 builders.
       # No Docker credentials or local build needed on the runner.

@@ -1,7 +1,11 @@
+import os
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+
+# Provide a stub API key so startup validation passes in tests
+os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-for-ci")
 
 from backend.database import Base, get_db
 from backend.main import app

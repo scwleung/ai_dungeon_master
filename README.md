@@ -321,6 +321,7 @@ Copy `.env.example` to `.env` and fill in the values.
 | `OPENAI_API_KEY` | No | — | Enables OpenAI TTS and DALL-E 3 scene illustration |
 | `DATABASE_URL` | No | `sqlite+aiosqlite:///./dungeon_master.db` | SQLAlchemy async database URL; `postgres://` is auto-normalised to `postgresql+asyncpg://` |
 | `CORS_ORIGINS` | No | `http://localhost:5173` | Comma-separated allowed CORS origins |
+| `ADMIN_KEY` | No | — | Secret key for the `GET /api/campaigns/admin/backup` endpoint; requests must include it as the `X-Admin-Key` header. If unset, the endpoint is disabled (returns 403) |
 
 ---
 

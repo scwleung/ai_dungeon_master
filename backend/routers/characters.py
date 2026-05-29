@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -112,9 +112,10 @@ async def create_character(
 
 @router.get("/characters/{character_id}", response_model=CharacterResponse)
 async def get_character(
-    character_id: str, db: AsyncSession = Depends(get_db)
+    character_id: str, response: Response, db: AsyncSession = Depends(get_db)
 ):
     """Return a single character by ID."""
+    response.headers["Cache-Control"] = "private, max-age=5"
     result = await db.execute(
         select(Character).where(Character.id == character_id)
     )

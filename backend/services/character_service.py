@@ -154,6 +154,10 @@ async def update_character_in_db(character_id: str, tool_input: dict) -> str:
             char.flaws = tool_input["flaws"]
         if "personality" in tool_input:
             char.personality = tool_input["personality"]
+        if "alignment" in tool_input:
+            char.alignment = tool_input["alignment"]
+        if "background" in tool_input:
+            char.background = tool_input["background"]
         if "languages" in tool_input:
             char.languages = json.dumps(tool_input["languages"])
         if "tool_proficiencies" in tool_input:

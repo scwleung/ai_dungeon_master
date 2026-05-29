@@ -146,6 +146,8 @@ class Character(Base):
     ideals: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     flaws: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     personality: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    alignment: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    background: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     languages: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
     tool_proficiencies: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
     features: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
@@ -220,6 +222,8 @@ class CharacterResponse(BaseModel):
     ideals: Optional[str] = None
     flaws: Optional[str] = None
     personality: Optional[str] = None
+    alignment: Optional[str] = None
+    background: Optional[str] = None
     languages: Optional[list] = None
     tool_proficiencies: Optional[list] = None
     features: Optional[list] = None
@@ -270,6 +274,8 @@ class CharacterResponse(BaseModel):
                 "ideals": getattr(obj, "ideals", None),
                 "flaws": getattr(obj, "flaws", None),
                 "personality": getattr(obj, "personality", None),
+                "alignment": getattr(obj, "alignment", None),
+                "background": getattr(obj, "background", None),
                 "languages": safe_json(getattr(obj, "languages", None), []),
                 "tool_proficiencies": safe_json(getattr(obj, "tool_proficiencies", None), []),
                 "features": safe_json(getattr(obj, "features", None), []),
@@ -324,6 +330,8 @@ class CharacterUpdate(BaseModel):
     ideals: Optional[str] = None
     flaws: Optional[str] = None
     personality: Optional[str] = None
+    alignment: Optional[str] = None
+    background: Optional[str] = None
     languages: Optional[list] = None
     tool_proficiencies: Optional[list] = None
     features: Optional[list] = None

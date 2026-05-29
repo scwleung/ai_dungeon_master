@@ -228,6 +228,19 @@ class SessionHub:
             {"type": "dm_response_complete", "text": full_text},
         )
 
+    async def close_all(self, message: str = "Server is restarting. Please reconnect in a moment.") -> None:
+        """Send a notice to every connected socket and close them cleanly."""
+        all_sockets = list(self._rooms.values())
+        for room_sockets in all_sockets:
+            for ws in list(room_sockets):
+                try:
+                    await ws.send_json({"type": "system", "text": message})
+                    await ws.close(code=1001)
+                except Exception:
+                    pass
+        self._rooms.clear()
+        self._spectators.clear()
+
 
 # ---------------------------------------------------------------------------
 # Singleton

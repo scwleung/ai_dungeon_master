@@ -54,6 +54,8 @@ async def run_migrations(conn) -> None:
         "ALTER TABLE characters ADD COLUMN IF NOT EXISTS tool_proficiencies TEXT DEFAULT '[]'",
         "ALTER TABLE characters ADD COLUMN IF NOT EXISTS features TEXT DEFAULT '[]'",
         "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS random_tables TEXT DEFAULT '[]'",
+        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS alignment VARCHAR(50)",
+        "ALTER TABLE characters ADD COLUMN IF NOT EXISTS background VARCHAR(100)",
     ]
 
     for col_sql in migration_statements:

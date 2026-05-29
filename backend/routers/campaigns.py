@@ -31,7 +31,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,8 +69,9 @@ def _campaign_to_response(campaign: Campaign) -> CampaignResponse:
 
 
 @router.get("/", response_model=list[CampaignResponse])
-async def list_campaigns(db: AsyncSession = Depends(get_db)):
+async def list_campaigns(response: Response, db: AsyncSession = Depends(get_db)):
     """Return all campaigns ordered by creation date descending."""
+    response.headers["Cache-Control"] = "public, max-age=10"
     result = await db.execute(
         select(Campaign)
         .options(selectinload(Campaign.sessions))
@@ -115,8 +116,9 @@ async def create_campaign(
 
 
 @router.get("/{campaign_id}", response_model=CampaignResponse)
-async def get_campaign(campaign_id: str, db: AsyncSession = Depends(get_db)):
+async def get_campaign(campaign_id: str, response: Response, db: AsyncSession = Depends(get_db)):
     """Return a single campaign by ID."""
+    response.headers["Cache-Control"] = "public, max-age=10"
     result = await db.execute(
         select(Campaign)
         .options(selectinload(Campaign.sessions))
@@ -356,8 +358,9 @@ async def update_map_annotations(
 
 
 @router.get("/{campaign_id}/npcs")
-async def list_npcs(campaign_id: str, db: AsyncSession = Depends(get_db)):
+async def list_npcs(campaign_id: str, response: Response, db: AsyncSession = Depends(get_db)):
     """Return the NPC registry for a campaign."""
+    response.headers["Cache-Control"] = "public, max-age=30"
     result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
     campaign = result.scalar_one_or_none()
     if campaign is None:
@@ -370,8 +373,9 @@ async def list_npcs(campaign_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{campaign_id}/quests")
-async def list_quests(campaign_id: str, db: AsyncSession = Depends(get_db)):
+async def list_quests(campaign_id: str, response: Response, db: AsyncSession = Depends(get_db)):
     """Return the quest log for a campaign."""
+    response.headers["Cache-Control"] = "public, max-age=30"
     result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
     campaign = result.scalar_one_or_none()
     if campaign is None:
@@ -776,7 +780,8 @@ async def delete_handout(
 
 
 @router.get("/{campaign_id}/timeline")
-async def get_timeline(campaign_id: str, db: AsyncSession = Depends(get_db)):
+async def get_timeline(campaign_id: str, response: Response, db: AsyncSession = Depends(get_db)):
+    response.headers["Cache-Control"] = "public, max-age=30"
     result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
     campaign = result.scalar_one_or_none()
     if campaign is None:
@@ -937,7 +942,8 @@ async def update_dm_notes(
 
 
 @router.get("/{campaign_id}/readalouds")
-async def get_readalouds(campaign_id: str, db: AsyncSession = Depends(get_db)):
+async def get_readalouds(campaign_id: str, response: Response, db: AsyncSession = Depends(get_db)):
+    response.headers["Cache-Control"] = "public, max-age=30"
     result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
     campaign = result.scalar_one_or_none()
     if campaign is None:
@@ -1138,8 +1144,15 @@ async def generate_recap(session_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/admin/backup")
-async def admin_backup(db: AsyncSession = Depends(get_db)):
+async def admin_backup(
+    db: AsyncSession = Depends(get_db),
+    x_admin_key: str = Header(default=""),
+):
     """Return a full backup of all campaigns, sessions, and characters."""
+    import os
+    expected = os.getenv("ADMIN_KEY", "")
+    if not expected or x_admin_key != expected:
+        raise HTTPException(status_code=403, detail="Invalid or missing X-Admin-Key header")
     results = await asyncio.gather(
         db.execute(select(Campaign)),
         db.execute(select(GameSession)),

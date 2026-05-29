@@ -87,10 +87,18 @@ _RL_WINDOW = 60.0
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    required_vars = ["ANTHROPIC_API_KEY"]
+    missing = [v for v in required_vars if not os.getenv(v)]
+    if missing:
+        raise RuntimeError(
+            f"Missing required environment variables: {', '.join(missing)}. "
+            "Copy .env.example to .env and fill in the values."
+        )
     await init_db()
     async with AsyncSessionLocal() as db:
         await run_migrations(db)
     yield
+    await session_hub.close_all()
 
 
 app = FastAPI(

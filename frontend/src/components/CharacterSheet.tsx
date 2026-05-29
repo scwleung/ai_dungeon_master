@@ -355,6 +355,38 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill,
           </label>
         </div>
 
+        {/* Attack Roll buttons */}
+        {onRollSkill && (
+          <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
+            {(() => {
+              const strMod = abilityMod(character.stats?.STR ?? 10)
+              const dexMod2 = abilityMod(character.stats?.DEX ?? 10)
+              return (
+                <>
+                  <button
+                    onClick={() => {
+                      onSendAction?.(`I make a melee attack roll: [rolling 1d20${strMod >= 0 ? '+' : ''}${strMod}]`)
+                      onRollSkill?.('Attack (Melee)', strMod)
+                    }}
+                    className="btn-ghost btn-sm"
+                    title={`Roll melee attack (STR ${strMod >= 0 ? '+' : ''}${strMod})`}
+                    style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}
+                  >⚔ Roll Melee</button>
+                  <button
+                    onClick={() => {
+                      onSendAction?.(`I make a ranged attack roll: [rolling 1d20${dexMod2 >= 0 ? '+' : ''}${dexMod2}]`)
+                      onRollSkill?.('Attack (Ranged)', dexMod2)
+                    }}
+                    className="btn-ghost btn-sm"
+                    title={`Roll ranged attack (DEX ${dexMod2 >= 0 ? '+' : ''}${dexMod2})`}
+                    style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}
+                  >🏹 Roll Ranged</button>
+                </>
+              )
+            })()}
+          </div>
+        )}
+
         {/* Export / Import buttons (owner only) */}
         {isOwner && (
           <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
@@ -385,10 +417,23 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill,
           <div style={{ fontSize: '0.7rem', color: 'var(--color-muted)', marginBottom: '0.2rem' }}>Saving Throws</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
             {(['STR','DEX','CON','INT','WIS','CHA'] as const).map(attr => {
-              const mod = Math.floor(((character.stats[attr] ?? 10) - 10) / 2)
+              const baseMod = Math.floor(((character.stats[attr] ?? 10) - 10) / 2)
+              const saveMod = baseMod
               return (
-                <span key={attr} style={{ fontSize: '0.75rem', padding: '0.1rem 0.4rem', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4 }}>
-                  {attr} {mod >= 0 ? '+' : ''}{mod}
+                <span key={attr} style={{ fontSize: '0.75rem', padding: '0.1rem 0.4rem', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                  {attr} {saveMod >= 0 ? '+' : ''}{saveMod}
+                  {onRollSkill && (
+                    <button
+                      onClick={() => onRollSkill(`${attr} Save`, saveMod)}
+                      title={`Roll ${attr} saving throw`}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        padding: '0', fontSize: '0.65rem', lineHeight: 1,
+                        color: 'var(--color-accent)', minWidth: 'unset',
+                        borderRadius: 2,
+                      }}
+                    >🎲</button>
+                  )}
                 </span>
               )
             })}
@@ -635,6 +680,56 @@ export function CharacterSheet({ character, onUpdate, onSendAction, onRollSkill,
         {/* Traits Tab */}
         {activeTab === 'traits' && (
           <div style={{ padding: 'var(--space-3) var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+
+            {/* Alignment */}
+            <div>
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 'var(--space-1)' }}>
+                Alignment
+              </div>
+              {isOwner ? (
+                <select
+                  value={character.alignment ?? ''}
+                  onChange={e => update({ alignment: e.target.value || undefined })}
+                  style={{ fontSize: 'var(--font-size-sm)', padding: '0.2rem 0.4rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', width: '100%' }}
+                >
+                  <option value="">— Select alignment —</option>
+                  <option value="Lawful Good">Lawful Good</option>
+                  <option value="Neutral Good">Neutral Good</option>
+                  <option value="Chaotic Good">Chaotic Good</option>
+                  <option value="Lawful Neutral">Lawful Neutral</option>
+                  <option value="True Neutral">True Neutral</option>
+                  <option value="Chaotic Neutral">Chaotic Neutral</option>
+                  <option value="Lawful Evil">Lawful Evil</option>
+                  <option value="Neutral Evil">Neutral Evil</option>
+                  <option value="Chaotic Evil">Chaotic Evil</option>
+                </select>
+              ) : (
+                <p style={{ fontSize: 'var(--font-size-sm)', color: character.alignment ? 'var(--text-secondary)' : 'var(--text-muted)', fontStyle: character.alignment ? 'normal' : 'italic' }}>
+                  {character.alignment ?? 'No alignment recorded.'}
+                </p>
+              )}
+            </div>
+
+            {/* Background */}
+            <div>
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 'var(--space-1)' }}>
+                Background
+              </div>
+              {isOwner ? (
+                <input
+                  type="text"
+                  defaultValue={character.background ?? ''}
+                  onBlur={e => update({ background: e.target.value || undefined })}
+                  placeholder="e.g. Soldier, Sage, Outlander"
+                  style={{ fontSize: 'var(--font-size-sm)', padding: '0.2rem 0.4rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', width: '100%' }}
+                />
+              ) : (
+                <p style={{ fontSize: 'var(--font-size-sm)', color: character.background ? 'var(--text-secondary)' : 'var(--text-muted)', fontStyle: character.background ? 'normal' : 'italic' }}>
+                  {character.background ?? 'No background recorded.'}
+                </p>
+              )}
+            </div>
+
             {(['personality', 'ideals', 'bonds', 'flaws'] as const).map(field => {
               const labels: Record<string, string> = {
                 personality: 'Personality Traits',

@@ -115,6 +115,8 @@ export interface Character {
   ideals?: string
   flaws?: string
   personality?: string
+  alignment?: string
+  background?: string
   languages?: string[]
   tool_proficiencies?: string[]
   features?: Array<{

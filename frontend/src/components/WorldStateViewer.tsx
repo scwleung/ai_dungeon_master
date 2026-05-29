@@ -13,7 +13,7 @@ interface WorldStateViewerProps {
  * DMs can add, inline-edit, and delete entries. Changes are saved via PUT.
  */
 export function WorldStateViewer({ campaignId, isDM }: WorldStateViewerProps) {
-  const { activeCampaign } = useGameStore()
+  const activeCampaign = useGameStore(s => s.activeCampaign)
   const [worldState, setWorldState] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useGameStore } from '../store/gameStore'
 
 interface Props {
@@ -39,7 +40,7 @@ function rollRandom(count: number, sides: number): number[] {
  * @param onClose - Called when the user dismisses the overlay without submitting.
  */
 export function DiceCamera({ onSendDiceImage, onSendManualRoll, onClose }: Props) {
-  const { pendingRoll, setPendingRoll } = useGameStore()
+  const { pendingRoll, setPendingRoll } = useGameStore(useShallow(s => ({ pendingRoll: s.pendingRoll, setPendingRoll: s.setPendingRoll })))
   const [mode, setMode] = useState<Mode>('camera')
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [processing, setProcessing] = useState(false)

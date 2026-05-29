@@ -24,6 +24,10 @@ import type {
   WorldTime,
 } from '../types'
 
+// Tracks in-flight load keys to prevent duplicate concurrent requests.
+// This is intentionally outside the store (not reactive).
+const _inflight = new Set<string>()
+
 function generateId(): string {
   return Math.random().toString(36).substring(2, 11)
 }
@@ -433,8 +437,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // Characters
   characters: [],
   loadCharacters: async (campaignId) => {
-    const res = await api.characters.list(campaignId)
-    set({ characters: res.data })
+    const key = `characters:${campaignId}`
+    if (_inflight.has(key)) return
+    _inflight.add(key)
+    try {
+      const res = await api.characters.list(campaignId)
+      set({ characters: res.data })
+    } finally {
+      _inflight.delete(key)
+    }
   },
   createCharacter: async (campaignId, data) => {
     const res = await api.characters.create(campaignId, data)
@@ -471,15 +482,29 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // Sessions history
   sessions: [],
   loadSessions: async (campaignId) => {
-    const res = await api.sessions.list(campaignId)
-    set({ sessions: res.data })
+    const key = `sessions:${campaignId}`
+    if (_inflight.has(key)) return
+    _inflight.add(key)
+    try {
+      const res = await api.sessions.list(campaignId)
+      set({ sessions: res.data })
+    } finally {
+      _inflight.delete(key)
+    }
   },
 
   // Dungeon map
   mapData: null,
   loadMap: async (campaignId) => {
-    const res = await api.map.get(campaignId)
-    set({ mapData: res.map_data })
+    const key = `map:${campaignId}`
+    if (_inflight.has(key)) return
+    _inflight.add(key)
+    try {
+      const res = await api.map.get(campaignId)
+      set({ mapData: res.map_data })
+    } finally {
+      _inflight.delete(key)
+    }
   },
   generateMap: async (campaignId) => {
     const res = await api.map.generate(campaignId)
@@ -498,16 +523,30 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // NPC tracker
   npcs: [],
   loadNpcs: async (campaignId) => {
-    const res = await api.npcs.list(campaignId)
-    set({ npcs: res.npcs })
+    const key = `npcs:${campaignId}`
+    if (_inflight.has(key)) return
+    _inflight.add(key)
+    try {
+      const res = await api.npcs.list(campaignId)
+      set({ npcs: res.npcs })
+    } finally {
+      _inflight.delete(key)
+    }
   },
   setNpcs: (npcs) => set({ npcs }),
 
   // Quest tracker
   quests: [],
   loadQuests: async (campaignId) => {
-    const res = await api.quests.list(campaignId)
-    set({ quests: res.quests })
+    const key = `quests:${campaignId}`
+    if (_inflight.has(key)) return
+    _inflight.add(key)
+    try {
+      const res = await api.quests.list(campaignId)
+      set({ quests: res.quests })
+    } finally {
+      _inflight.delete(key)
+    }
   },
   setQuests: (quests) => set({ quests }),
 

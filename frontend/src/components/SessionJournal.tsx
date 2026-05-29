@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useGameStore } from '../store/gameStore'
 import type { Session } from '../types'
 
@@ -49,7 +50,7 @@ function JournalEntry({ session }: { session: Session & { session_summary: strin
  * summaries exist yet.
  */
 export function SessionJournal() {
-  const { sessions, activeCampaign } = useGameStore()
+  const { sessions, activeCampaign } = useGameStore(useShallow(s => ({ sessions: s.sessions, activeCampaign: s.activeCampaign })))
 
   // Only show sessions that have a summary, sorted newest first
   const journalSessions = [...sessions]

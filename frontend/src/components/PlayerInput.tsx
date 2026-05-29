@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useGameStore } from '../store/gameStore'
 import { MicButton } from './MicButton'
 
@@ -36,7 +37,7 @@ export function PlayerInput({
   onOpenDiceRoller,
   connected,
 }: Props) {
-  const { streamingText, pendingRoll } = useGameStore()
+  const { streamingText, pendingRoll } = useGameStore(useShallow(s => ({ streamingText: s.streamingText, pendingRoll: s.pendingRoll })))
   const [text, setText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 

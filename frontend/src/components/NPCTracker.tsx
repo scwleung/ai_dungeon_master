@@ -25,7 +25,7 @@ const ATTITUDE_BADGE_CLASS: Record<NPC['attitude'], string> = {
  * in the Zustand store by {@link useWebSocket}.
  */
 export function NPCTracker({ onClose }: { onClose: () => void }) {
-  const { npcs } = useGameStore()
+  const npcs = useGameStore(s => s.npcs)
 
   const grouped = ATTITUDE_ORDER.reduce<Record<NPC['attitude'], NPC[]>>(
     (acc, att) => {

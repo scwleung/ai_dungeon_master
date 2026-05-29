@@ -41,11 +41,48 @@ jobs:
 # One-time first-deploy setup (run locally with flyctl installed):
 #
 #   fly apps create ai-dungeon-master
+#
+# ── Option A: SQLite on a persistent Fly volume (simpler, single machine) ─────
+#
 #   fly volumes create dm_data --region sin --size 1 --app ai-dungeon-master
 #   fly secrets set \
 #     ANTHROPIC_API_KEY="sk-ant-..." \
 #     DATABASE_URL="sqlite+aiosqlite:////data/dungeon_master.db" \
 #     CORS_ORIGINS="https://ai-dungeon-master.fly.dev" \
 #     --app ai-dungeon-master
+#
+#   Notes:
+#   - The volume attaches to one machine at a time; scale to multiple machines
+#     only if you switch to PostgreSQL.
+#   - Backup the volume manually with: fly ssh console -C "sqlite3 /data/dungeon_master.db .dump"
+#
+# ── Option B: Fly Postgres (recommended for multi-machine or production) ───────
+#
+#   fly postgres create \
+#     --name ai-dungeon-master-db \
+#     --region sin \
+#     --initial-cluster-size 1 \
+#     --vm-size shared-cpu-1x \
+#     --volume-size 10
+#
+#   fly postgres attach ai-dungeon-master-db --app ai-dungeon-master
+#   # ↑ Automatically sets DATABASE_URL in the app's environment.
+#   # The app normalises postgres:// → postgresql+asyncpg:// at startup,
+#   # so no code changes are needed.
+#
+#   fly secrets set \
+#     ANTHROPIC_API_KEY="sk-ant-..." \
+#     CORS_ORIGINS="https://ai-dungeon-master.fly.dev" \
+#     --app ai-dungeon-master
+#
+#   Notes:
+#   - Fly Postgres includes daily automated backups.
+#   - Supports multiple app machines (horizontal scaling).
+#   - If switching from SQLite, migrate data with:
+#       fly ssh console -C "sqlite3 /data/dungeon_master.db .dump" | \
+#       fly postgres connect -a ai-dungeon-master-db
+#
+# ── Both options: finish setup ─────────────────────────────────────────────────
+#
 #   fly tokens create deploy -x 999999h   # → paste into GitHub secret FLY_API_TOKEN
 # ──────────────────────────────────────────────────────────────────────────────

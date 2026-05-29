@@ -1,5 +1,7 @@
 # AI Dungeon Master
 
+![CI](https://github.com/scwleung/ai_dungeon_master/actions/workflows/ci.yml/badge.svg)
+
 A full-stack web application that uses the Anthropic Claude API to act as an interactive Dungeons & Dragons Dungeon Master. Players describe actions in text or voice, and the AI narrates the story, rolls dice, tracks character stats, reveals a procedurally generated dungeon map, and adapts the world in real time.
 
 ---
@@ -652,6 +654,27 @@ Three themes are available and can be toggled in the header without reloading th
 | **Minimal** | Clean whites and greys — distraction-free reading |
 
 Themes are implemented via CSS custom properties on `document.body` and persisted in `localStorage`.
+
+---
+
+## Developer Setup
+
+Install dev dependencies and pre-commit hooks:
+
+```bash
+pip install -r requirements-dev.txt
+pre-commit install
+```
+
+Pre-commit runs ruff (Python linting) and standard file checks on every commit.
+Run the full CI suite locally:
+```bash
+# Backend
+python -m pytest tests/ -x -q
+
+# Frontend
+cd frontend && npm run build
+```
 
 ---
 

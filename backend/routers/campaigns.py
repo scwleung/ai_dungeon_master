@@ -46,6 +46,7 @@ from backend.models.campaign import (
     CampaignCreate,
     CampaignResponse,
     Session as GameSession,
+    SessionMessage,
     SessionResponse,
 )
 from backend.models.character import Character
@@ -227,6 +228,7 @@ async def list_sessions(campaign_id: str, db: AsyncSession = Depends(get_db)):
 
     result = await db.execute(
         select(GameSession)
+        .options(selectinload(GameSession.msg_objects))
         .where(GameSession.campaign_id == campaign_id)
         .order_by(GameSession.started_at.desc())
     )
@@ -263,6 +265,13 @@ async def start_session(
     )
     db.add(session)
     await db.flush()
+    # Re-query with msg_objects loaded so SessionResponse.parse_messages can use it
+    sess_result = await db.execute(
+        select(GameSession)
+        .options(selectinload(GameSession.msg_objects))
+        .where(GameSession.id == session.id)
+    )
+    session = sess_result.scalar_one()
     return SessionResponse.model_validate(session)
 
 
@@ -437,7 +446,9 @@ async def end_session(
 ):
     """Mark a session as ended by recording the end timestamp."""
     result = await db.execute(
-        select(GameSession).where(GameSession.id == session_id)
+        select(GameSession)
+        .options(selectinload(GameSession.msg_objects))
+        .where(GameSession.id == session_id)
     )
     session = result.scalar_one_or_none()
     if session is None:

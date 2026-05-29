@@ -12,9 +12,8 @@ primary_region = "sin"
   auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 0
-  # Prevent Fly's proxy from dropping long-lived WebSocket connections.
-  # Without this the default 60-second idle timeout kills open sessions.
-  idle_timeout = 0
+  # Fly's HTTP proxy passes WebSocket Upgrade requests through natively;
+  # no extra timeout config is needed.
 
   [http_service.concurrency]
     type = "requests"

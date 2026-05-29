@@ -24,7 +24,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Index, func
+from sqlalchemy import String, Text, DateTime, ForeignKey, Index, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
@@ -126,6 +126,40 @@ class Session(Base):
     __table_args__ = (Index("ix_session_campaign_id", "campaign_id"),)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="sessions")
+    msg_objects: Mapped[list["SessionMessage"]] = relationship(  # type: ignore[name-defined]
+        "SessionMessage",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="SessionMessage.seq",
+        lazy="select",
+    )
+
+
+class SessionMessage(Base):
+    """A single message in a game session, stored as an individual row.
+
+    Replaces the JSON-blob ``sessions.messages`` column for new writes.
+    The ``seq`` field preserves insertion order within a session.
+    """
+
+    __tablename__ = "session_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    player_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    timestamp: Mapped[str] = mapped_column(String(50), nullable=False)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        Index("ix_session_message_session_id", "session_id"),
+        Index("ix_session_message_session_seq", "session_id", "seq"),
+    )
+
+    session: Mapped["Session"] = relationship("Session", back_populates="msg_objects")  # type: ignore[name-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -241,14 +275,29 @@ class SessionResponse(BaseModel):
         """Deserialise the JSON ``messages`` field from an ORM object or dict."""
         if hasattr(values, "__dict__"):
             obj = values
-            raw = obj.messages
-            if isinstance(raw, str):
-                try:
-                    parsed = json.loads(raw)
-                except (json.JSONDecodeError, TypeError):
-                    parsed = []
+            # Only use the normalised rows when already eagerly loaded — never
+            # trigger a lazy select inside a Pydantic validator (no async ctx).
+            msg_objects = obj.__dict__.get("msg_objects")
+            if msg_objects:
+                parsed = [
+                    {
+                        "id": m.id,
+                        "role": m.role,
+                        "player_name": m.player_name,
+                        "text": m.text,
+                        "timestamp": m.timestamp,
+                    }
+                    for m in sorted(msg_objects, key=lambda m: m.seq)
+                ]
             else:
-                parsed = raw or []
+                raw = obj.messages
+                if isinstance(raw, str):
+                    try:
+                        parsed = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        parsed = []
+                else:
+                    parsed = raw or []
             return {
                 "id": obj.id,
                 "campaign_id": obj.campaign_id,

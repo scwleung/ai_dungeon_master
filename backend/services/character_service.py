@@ -15,7 +15,7 @@ from backend.database import AsyncSessionLocal
 from backend.models.character import Character
 
 
-async def update_character_in_db(character_id: str, tool_input: dict) -> str:
+async def update_character_in_db(character_id: str, tool_input: dict) -> tuple[str, object]:
     """
     Apply an update_character tool call to the database.
 
@@ -27,7 +27,7 @@ async def update_character_in_db(character_id: str, tool_input: dict) -> str:
         )
         char = result.scalar_one_or_none()
         if char is None:
-            return f"Character {character_id!r} not found."
+            return f"Character {character_id!r} not found.", None
 
         changes: list[str] = []
 
@@ -195,4 +195,5 @@ async def update_character_in_db(character_id: str, tool_input: dict) -> str:
 
         await db.commit()
 
-        return "; ".join(changes) if changes else f"No changes made to {char.name}."
+        summary = "; ".join(changes) if changes else f"No changes made to {char.name}."
+        return summary, char

@@ -37,6 +37,20 @@ async_engine = create_async_engine(
     **_pool_kwargs,
 )
 
+# Enable WAL mode and tune SQLite for concurrent async access.
+# Only applied when the configured driver is aiosqlite.
+if "sqlite" in DATABASE_URL:
+    from sqlalchemy import event
+
+    @event.listens_for(async_engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA cache_size=10000")
+        cursor.execute("PRAGMA temp_store=MEMORY")
+        cursor.close()
+
 AsyncSessionLocal = async_sessionmaker(
     bind=async_engine,
     class_=AsyncSession,

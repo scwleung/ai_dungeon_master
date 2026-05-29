@@ -1,5 +1,4 @@
 """Tests for GameStateManager from backend.services.game_state."""
-import pytest
 
 from backend.services.game_state import GameStateManager, ActiveSession, PendingRoll
 

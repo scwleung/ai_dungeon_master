@@ -1,5 +1,4 @@
 """Tests for GET /health endpoint."""
-import pytest
 
 
 async def test_health_returns_200(client):

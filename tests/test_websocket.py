@@ -3,7 +3,6 @@
 from contextlib import ExitStack
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from starlette.testclient import TestClient
 
 from backend.main import app, dm

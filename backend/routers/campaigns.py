@@ -33,7 +33,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel
-from sqlalchemy import select, func, delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -694,12 +694,18 @@ async def update_world_time(
     existing.update(updates)
     if "hour" in updates and "time_of_day" not in updates:
         h = existing["hour"] % 24
-        if 5 <= h < 8: existing["time_of_day"] = "dawn"
-        elif 8 <= h < 12: existing["time_of_day"] = "morning"
-        elif 12 <= h < 17: existing["time_of_day"] = "afternoon"
-        elif 17 <= h < 20: existing["time_of_day"] = "evening"
-        elif 20 <= h < 23: existing["time_of_day"] = "night"
-        else: existing["time_of_day"] = "midnight"
+        if 5 <= h < 8:
+            existing["time_of_day"] = "dawn"
+        elif 8 <= h < 12:
+            existing["time_of_day"] = "morning"
+        elif 12 <= h < 17:
+            existing["time_of_day"] = "afternoon"
+        elif 17 <= h < 20:
+            existing["time_of_day"] = "evening"
+        elif 20 <= h < 23:
+            existing["time_of_day"] = "night"
+        else:
+            existing["time_of_day"] = "midnight"
     campaign.world_time = json.dumps(existing)
     await db.flush()
     active = await db.execute(select(GameSession).where(GameSession.campaign_id == campaign_id, GameSession.ended_at.is_(None)))

@@ -1,5 +1,4 @@
 """Tests for random table endpoints under /api/campaigns/{campaign_id}/tables."""
-import pytest
 from httpx import AsyncClient
 
 

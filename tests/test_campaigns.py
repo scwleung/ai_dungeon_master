@@ -1,5 +1,4 @@
 """Full HTTP integration tests for campaign and session endpoints."""
-import pytest
 from httpx import AsyncClient
 
 

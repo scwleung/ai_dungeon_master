@@ -61,7 +61,7 @@ from sqlalchemy.orm import selectinload
 
 from sqlalchemy import text
 
-from backend.database import AsyncSessionLocal, get_db, init_db
+from backend.database import AsyncSessionLocal, init_db
 from backend.models.campaign import Campaign
 from backend.models.campaign import Session as GameSession
 from backend.models.character import Character

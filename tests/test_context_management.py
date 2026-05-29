@@ -3,7 +3,6 @@
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 from backend.main import (
     SUMMARY_KEEP_RECENT,

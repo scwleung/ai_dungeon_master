@@ -1,5 +1,4 @@
 """Tests for backend.services.tts_service."""
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.services.tts_service import (

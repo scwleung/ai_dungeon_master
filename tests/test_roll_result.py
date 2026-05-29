@@ -1,7 +1,7 @@
 """Tests for the roll_dice function in backend.models.roll_result."""
 import pytest
 
-from backend.models.roll_result import roll_dice, RollResult
+from backend.models.roll_result import roll_dice
 
 
 def test_basic_1d6_total_in_range():

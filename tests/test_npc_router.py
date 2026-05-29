@@ -3,7 +3,6 @@
 import uuid
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
 
 
@@ -18,7 +17,6 @@ async def test_list_npcs_returns_empty_for_new_campaign(client: AsyncClient):
     assert create_resp.status_code == 201
     campaign = create_resp.json()
     campaign_id = campaign["id"]
-    access_code = campaign["access_code"]
 
     # Fetch NPCs — should be empty
     resp = await client.get(f"/api/campaigns/{campaign_id}/npcs")

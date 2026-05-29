@@ -1,5 +1,4 @@
 """Unit tests for Combatant and GameStateManager combat mechanics."""
-import pytest
 
 from backend.services.game_state import Combatant, GameStateManager
 

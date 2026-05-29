@@ -1,5 +1,4 @@
 """Tests for POST /api/campaigns/sessions/{session_id}/recap endpoint."""
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient
 

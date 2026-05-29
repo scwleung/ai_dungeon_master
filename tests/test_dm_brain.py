@@ -1,5 +1,4 @@
 """Tests for DungeonMaster from backend.services.dm_brain."""
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from backend.services.dm_brain import DungeonMaster

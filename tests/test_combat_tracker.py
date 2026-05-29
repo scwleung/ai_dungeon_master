@@ -1,7 +1,7 @@
 """Tests for the in-memory combat tracker (GameStateManager combat methods)."""
 
 import pytest
-from backend.services.game_state import CombatState, Combatant, GameStateManager
+from backend.services.game_state import GameStateManager
 
 
 @pytest.fixture

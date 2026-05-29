@@ -52,7 +52,6 @@ from typing import AsyncGenerator, Callable, Optional
 import anthropic
 from anthropic import AsyncAnthropic
 
-from backend.models.roll_result import roll_dice
 
 
 # ---------------------------------------------------------------------------

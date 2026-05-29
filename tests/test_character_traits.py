@@ -1,5 +1,4 @@
 """Tests for PATCH /api/characters/{character_id} — character trait/feature fields."""
-import pytest
 from httpx import AsyncClient
 
 

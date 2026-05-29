@@ -1,6 +1,5 @@
 """Tests for SessionHub from backend.ws.session_hub."""
-import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 from backend.ws.session_hub import SessionHub
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import type { NarrativeMessage } from '../types'
 
@@ -12,6 +12,23 @@ function formatTime(iso: string): string {
 
 function MessageItem({ msg }: { msg: NarrativeMessage }) {
   const roleClass = `msg-${msg.role}`
+
+  if (msg.text.startsWith('🎬 SCENE:')) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '0.75rem',
+        margin: '1rem 0', padding: '0.5rem 0',
+        borderTop: '2px solid var(--color-accent)',
+        borderBottom: '2px solid var(--color-accent)',
+      }}>
+        <span style={{ fontSize: '1.1rem' }}>🎬</span>
+        <strong style={{ color: 'var(--color-accent)', letterSpacing: '0.05em', fontSize: '0.95rem' }}>
+          {msg.text.replace('🎬 SCENE:', '').trim()}
+        </strong>
+      </div>
+    )
+  }
+
   return (
     <div className={`message-item ${roleClass} animate-fade-in`} title={formatTime(msg.timestamp)}>
       {msg.role === 'player' && msg.player_name && (
@@ -46,6 +63,8 @@ function StreamingMessage({ text }: { text: string }) {
  * cursor is appended below the history. The log auto-scrolls to the bottom when
  * new content arrives, unless the user has manually scrolled up.
  *
+ * Press Ctrl+F or click the search icon to filter messages by text.
+ *
  * `overscroll-behavior: contain` and `-webkit-overflow-scrolling: touch` are
  * applied to prevent page bounce on iOS when the log reaches its scroll boundary.
  *
@@ -55,7 +74,35 @@ export function NarrativeLog() {
   const { messages, streamingText } = useGameStore()
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const isNearBottomRef = useRef(true)
+
+  const [showSearch, setShowSearch] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showCount, setShowCount] = useState(150)
+
+  const filteredMessages = searchQuery.trim()
+    ? messages.filter((msg) =>
+        msg.text.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : messages
+
+  const visibleMessages = filteredMessages.slice(-showCount)
+  const hasMore = filteredMessages.length > showCount
+
+  const matchCount = searchQuery.trim() ? filteredMessages.length : 0
+
+  // Reset showCount when search query changes
+  useEffect(() => {
+    setShowCount(150)
+  }, [searchQuery])
+
+  // Focus search input when it appears
+  useEffect(() => {
+    if (showSearch) {
+      searchInputRef.current?.focus()
+    }
+  }, [showSearch])
 
   // Track whether user is near the bottom
   function handleScroll() {
@@ -67,185 +114,326 @@ export function NarrativeLog() {
 
   // Auto-scroll when new messages arrive or streaming text updates
   useEffect(() => {
-    if (isNearBottomRef.current) {
+    if (isNearBottomRef.current && !searchQuery.trim()) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages, streamingText])
+  }, [messages, streamingText, searchQuery])
 
   // Initial scroll to bottom
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'auto' })
   }, [])
 
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.ctrlKey && e.key === 'f') {
+      e.preventDefault()
+      setShowSearch((v) => !v)
+    }
+  }
+
+  function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Escape') {
+      setSearchQuery('')
+      setShowSearch(false)
+    }
+  }
+
+  function handleToggleSearch() {
+    setShowSearch((v) => {
+      if (v) setSearchQuery('')
+      return !v
+    })
+  }
+
   return (
     <div
-      className="narrative-log"
-      ref={containerRef}
-      onScroll={handleScroll}
-      aria-live="polite"
-      aria-label="Story log"
-      style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+      className="narrative-log-wrapper"
+      onKeyDown={handleKeyDown}
+      tabIndex={-1}
+      style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0 }}
     >
-      {messages.length === 0 && !streamingText && (
-        <div className="log-empty">
-          <p className="log-empty-icon">⚔</p>
-          <p>Your adventure begins when you speak...</p>
+      {/* Search Bar */}
+      {showSearch && (
+        <div className="log-search-bar">
+          <input
+            ref={searchInputRef}
+            type="text"
+            className="log-search-input"
+            placeholder="Search messages..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            aria-label="Search messages"
+          />
+          {searchQuery.trim() && (
+            <span className="log-search-count">
+              {matchCount} match{matchCount !== 1 ? 'es' : ''}
+            </span>
+          )}
+          <button
+            className="log-search-close btn-ghost btn-sm"
+            onClick={() => {
+              setSearchQuery('')
+              setShowSearch(false)
+            }}
+            aria-label="Close search"
+          >
+            ×
+          </button>
         </div>
       )}
 
-      {messages.map((msg) => (
-        <MessageItem key={msg.id} msg={msg} />
-      ))}
+      <div
+        className="narrative-log"
+        ref={containerRef}
+        onScroll={handleScroll}
+        aria-live="polite"
+        aria-label="Story log"
+        style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+      >
+        {/* Search icon button — floats in the top-right of the log */}
+        <button
+          className="log-search-toggle btn-ghost btn-sm"
+          onClick={handleToggleSearch}
+          title={showSearch ? 'Hide search' : 'Search messages (Ctrl+F)'}
+          aria-label="Toggle search"
+        >
+          🔍
+        </button>
 
-      {streamingText && <StreamingMessage text={streamingText} />}
+        {filteredMessages.length === 0 && !streamingText && (
+          <div className="log-empty">
+            {searchQuery.trim() ? (
+              <>
+                <p className="log-empty-icon">🔍</p>
+                <p>No messages match &ldquo;{searchQuery}&rdquo;</p>
+              </>
+            ) : (
+              <>
+                <p className="log-empty-icon">⚔</p>
+                <p>Your adventure begins when you speak...</p>
+              </>
+            )}
+          </div>
+        )}
 
-      <div ref={bottomRef} className="scroll-anchor" />
+        {hasMore && (
+          <button
+            onClick={() => setShowCount(c => c + 100)}
+            style={{ width: '100%', padding: '0.4rem', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '0.5rem' }}
+          >Show {filteredMessages.length - showCount} older messages</button>
+        )}
 
-      <style>{`
-        .narrative-log {
-          flex: 1;
-          overflow-y: auto;
-          padding: var(--space-5) var(--space-6);
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-4);
-          scroll-behavior: smooth;
-        }
+        {visibleMessages.map((msg) => (
+          <MessageItem key={msg.id} msg={msg} />
+        ))}
 
-        .scroll-anchor {
-          height: 1px;
-          flex-shrink: 0;
-        }
+        {!searchQuery.trim() && streamingText && <StreamingMessage text={streamingText} />}
 
-        .log-empty {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          color: var(--text-muted);
-          font-style: italic;
-          gap: var(--space-3);
-          text-align: center;
-          opacity: 0.6;
-        }
+        <div ref={bottomRef} className="scroll-anchor" />
 
-        .log-empty-icon {
-          font-size: 2.5rem;
-          color: var(--accent);
-          opacity: 0.4;
-          margin-bottom: 0;
-        }
+        <style>{`
+          .narrative-log-wrapper {
+            position: relative;
+          }
 
-        /* === DM Messages === */
-        .msg-dm {
-          max-width: 90%;
-          align-self: flex-start;
-          position: relative;
-        }
+          .log-search-bar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-2) var(--space-4);
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+          }
 
-        .msg-dm .msg-text {
-          display: block;
-          font-style: italic;
-          font-size: var(--font-size-lg);
-          line-height: 1.75;
-          color: var(--text-primary);
-        }
+          .log-search-input {
+            flex: 1;
+            font-size: var(--font-size-sm);
+            padding: var(--space-1) var(--space-2);
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text-primary);
+          }
 
-        /* fantasy.css and other themes can override .msg-dm for decoration */
-        .msg-dm {
-          padding: var(--space-3) var(--space-4);
-          border-radius: var(--radius);
-        }
+          .log-search-input:focus {
+            outline: none;
+            border-color: var(--accent);
+          }
 
-        /* === Player Messages === */
-        .msg-player {
-          max-width: 75%;
-          align-self: flex-end;
-          background: var(--bg-card);
-          border: 1px solid var(--border-light);
-          padding: var(--space-2) var(--space-4);
-          border-radius: var(--radius);
-          position: relative;
-        }
+          .log-search-count {
+            font-size: var(--font-size-xs);
+            color: var(--text-muted);
+            white-space: nowrap;
+          }
 
-        .msg-player .msg-player-name {
-          font-weight: 700;
-          color: var(--accent);
-          font-size: var(--font-size-sm);
-          font-style: normal;
-        }
+          .log-search-close {
+            padding: 2px 8px;
+            font-size: var(--font-size-sm);
+          }
 
-        .msg-player .msg-text {
-          color: var(--text-secondary);
-          font-size: var(--font-size-base);
-          line-height: 1.5;
-        }
+          .log-search-toggle {
+            position: absolute;
+            top: var(--space-3);
+            right: var(--space-3);
+            z-index: 10;
+            padding: 2px 6px;
+            font-size: var(--font-size-sm);
+            opacity: 0.5;
+            transition: opacity var(--transition);
+          }
 
-        /* === System Messages === */
-        .msg-system {
-          align-self: center;
-          text-align: center;
-          max-width: 80%;
-        }
+          .log-search-toggle:hover {
+            opacity: 1;
+          }
 
-        .msg-system .msg-text {
-          font-size: var(--font-size-xs);
-          color: var(--text-muted);
-          font-style: italic;
-          background: var(--bg-secondary);
-          padding: 3px var(--space-3);
-          border-radius: var(--radius-full);
-          border: 1px solid var(--border);
-          display: inline-block;
-        }
-
-        /* === Timestamps === */
-        .msg-timestamp {
-          display: none;
-          font-size: var(--font-size-xs);
-          color: var(--text-muted);
-          margin-left: var(--space-2);
-          font-family: var(--font-mono);
-          font-style: normal;
-          vertical-align: middle;
-          opacity: 0.7;
-        }
-
-        .message-item:hover .msg-timestamp {
-          display: inline;
-        }
-
-        /* === Streaming cursor === */
-        .streaming-cursor {
-          display: inline-block;
-          width: 2px;
-          height: 1.1em;
-          background: var(--accent);
-          margin-left: 2px;
-          vertical-align: text-bottom;
-          animation: blink 1s step-end infinite;
-        }
-
-        /* === Streaming state === */
-        .msg-streaming {
-          opacity: 0.9;
-        }
-
-        @media (max-width: 768px) {
           .narrative-log {
-            padding: var(--space-3) var(--space-4);
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-5) var(--space-6);
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-4);
+            scroll-behavior: smooth;
+            position: relative;
+          }
+
+          .scroll-anchor {
+            height: 1px;
+            flex-shrink: 0;
+          }
+
+          .log-empty {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-style: italic;
+            gap: var(--space-3);
+            text-align: center;
+            opacity: 0.6;
+          }
+
+          .log-empty-icon {
+            font-size: 2.5rem;
+            color: var(--accent);
+            opacity: 0.4;
+            margin-bottom: 0;
+          }
+
+          /* === DM Messages === */
+          .msg-dm {
+            max-width: 90%;
+            align-self: flex-start;
+            position: relative;
           }
 
           .msg-dm .msg-text {
-            font-size: var(--font-size-base);
+            display: block;
+            font-style: italic;
+            font-size: var(--font-size-lg);
+            line-height: 1.75;
+            color: var(--text-primary);
           }
 
-          .msg-player {
-            max-width: 90%;
+          /* fantasy.css and other themes can override .msg-dm for decoration */
+          .msg-dm {
+            padding: var(--space-3) var(--space-4);
+            border-radius: var(--radius);
           }
-        }
-      `}</style>
+
+          /* === Player Messages === */
+          .msg-player {
+            max-width: 75%;
+            align-self: flex-end;
+            background: var(--bg-card);
+            border: 1px solid var(--border-light);
+            padding: var(--space-2) var(--space-4);
+            border-radius: var(--radius);
+            position: relative;
+          }
+
+          .msg-player .msg-player-name {
+            font-weight: 700;
+            color: var(--accent);
+            font-size: var(--font-size-sm);
+            font-style: normal;
+          }
+
+          .msg-player .msg-text {
+            color: var(--text-secondary);
+            font-size: var(--font-size-base);
+            line-height: 1.5;
+          }
+
+          /* === System Messages === */
+          .msg-system {
+            align-self: center;
+            text-align: center;
+            max-width: 80%;
+          }
+
+          .msg-system .msg-text {
+            font-size: var(--font-size-xs);
+            color: var(--text-muted);
+            font-style: italic;
+            background: var(--bg-secondary);
+            padding: 3px var(--space-3);
+            border-radius: var(--radius-full);
+            border: 1px solid var(--border);
+            display: inline-block;
+          }
+
+          /* === Timestamps === */
+          .msg-timestamp {
+            display: none;
+            font-size: var(--font-size-xs);
+            color: var(--text-muted);
+            margin-left: var(--space-2);
+            font-family: var(--font-mono);
+            font-style: normal;
+            vertical-align: middle;
+            opacity: 0.7;
+          }
+
+          .message-item:hover .msg-timestamp {
+            display: inline;
+          }
+
+          /* === Streaming cursor === */
+          .streaming-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1.1em;
+            background: var(--accent);
+            margin-left: 2px;
+            vertical-align: text-bottom;
+            animation: blink 1s step-end infinite;
+          }
+
+          /* === Streaming state === */
+          .msg-streaming {
+            opacity: 0.9;
+          }
+
+          @media (max-width: 768px) {
+            .narrative-log {
+              padding: var(--space-3) var(--space-4);
+            }
+
+            .msg-dm .msg-text {
+              font-size: var(--font-size-base);
+            }
+
+            .msg-player {
+              max-width: 90%;
+            }
+          }
+        `}</style>
+      </div>
     </div>
   )
 }

@@ -1,7 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { useGameStore } from '../store/gameStore'
 import type { Combatant } from '../types'
+import { ConditionReference } from './ConditionReference'
+
+const STAT_BLOCKS: Record<string, { ac: number; speed: string; cr: string; abilities: string }> = {
+  'Goblin': { ac: 15, speed: '30 ft.', cr: '1/4', abilities: 'Nimble Escape, Scimitar +4 (2d6+2)' },
+  'Orc': { ac: 13, speed: '30 ft.', cr: '1/2', abilities: 'Aggressive, Greataxe +5 (1d12+3)' },
+  'Skeleton': { ac: 13, speed: '30 ft.', cr: '1/4', abilities: 'Shortsword +4 (1d6+2), Shortbow +4 (1d6+2)' },
+  'Zombie': { ac: 8, speed: '20 ft.', cr: '1/4', abilities: 'Undead Fortitude, Slam +3 (1d6+1)' },
+  'Wolf': { ac: 13, speed: '40 ft.', cr: '1/4', abilities: 'Pack Tactics, Bite +4 (2d4+2) + Prone DC 11' },
+  'Bandit': { ac: 12, speed: '30 ft.', cr: '1/8', abilities: 'Scimitar +3 (1d6+1), Crossbow +3 (1d6+1)' },
+  'Guard': { ac: 16, speed: '30 ft.', cr: '1/8', abilities: 'Spear +3 (1d6+1)' },
+  'Giant Spider': { ac: 14, speed: '30 ft., climb 30 ft.', cr: '1', abilities: 'Web Sense, Bite +5 (1d8+3) + Poison DC 11' },
+  'Ogre': { ac: 11, speed: '40 ft.', cr: '2', abilities: 'Greatclub +6 (2d8+4), Javelin +6 (2d6+4)' },
+  'Troll': { ac: 15, speed: '30 ft.', cr: '5', abilities: 'Regeneration 10 HP/turn, Multiattack, Claw +7 (2d6+4)' },
+}
 
 /**
  * Real-time combat initiative tracker.
@@ -13,9 +27,45 @@ import type { Combatant } from '../types'
  * When a session is active, exposes REST controls: Next Turn, End Combat,
  * per-combatant Remove, and an Add Combatant form.
  */
-export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: boolean }) {
+export function CombatTracker({
+  onClose,
+  isDM,
+  onUseReaction,
+  onResetReactions,
+  onLegendaryAction,
+}: {
+  onClose: () => void
+  isDM: boolean
+  onUseReaction?: (name: string) => void
+  onResetReactions?: () => void
+  onLegendaryAction?: (name: string, delta: number) => void
+}) {
   const { combatActive, combatRound, combatTurnIndex, combatants, activeSession } = useGameStore()
   const sessionId = activeSession?.id ?? null
+
+  const [turnDuration, setTurnDuration] = useState(60)
+  const [timeLeft, setTimeLeft] = useState<number | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (!combatActive) {
+      setTimeLeft(null)
+      if (timerRef.current) clearInterval(timerRef.current)
+      return
+    }
+    if (timerRef.current) clearInterval(timerRef.current)
+    setTimeLeft(turnDuration)
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(timerRef.current!)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  }, [combatTurnIndex, combatActive, turnDuration])
 
   const [nextTurnLoading, setNextTurnLoading] = useState(false)
   const [endCombatLoading, setEndCombatLoading] = useState(false)
@@ -27,6 +77,7 @@ export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: bo
   const [addHpCurrent, setAddHpCurrent] = useState('')
   const [addIsPlayer, setAddIsPlayer] = useState(false)
   const [addLoading, setAddLoading] = useState(false)
+  const [showConditions, setShowConditions] = useState(false)
 
   async function handleNextTurn() {
     if (!sessionId) return
@@ -111,6 +162,21 @@ export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: bo
           <span className="combat-empty-sub">Combat will appear here when the DM starts an encounter</span>
         </div>
 
+        {showConditions && (
+          <div className="combat-conditions-inline">
+            <ConditionReference onClose={() => setShowConditions(false)} />
+          </div>
+        )}
+
+        <div className="combat-conditions-footer">
+          <button
+            className="btn-ghost btn-sm combat-conditions-toggle"
+            onClick={() => setShowConditions((v) => !v)}
+          >
+            📖 Conditions
+          </button>
+        </div>
+
         <style>{combatStyles}</style>
       </div>
     )
@@ -143,11 +209,56 @@ export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: bo
           >
             {endCombatLoading ? '...' : 'End Combat'}
           </button>
+          <button
+            className="btn-ghost btn-sm"
+            onClick={async () => {
+              if (!sessionId) return
+              try { await api.combat.rollInitiative(sessionId) } catch (e) { console.error(e) }
+            }}
+            aria-label="Roll initiative for all combatants"
+          >🎲 Roll Initiative</button>
+          {onResetReactions && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={onResetReactions}
+              title="Reset all reactions"
+              aria-label="Reset all reactions"
+            >⚡ Reset Reactions</button>
+          )}
         </div>
       )}
 
       {controlError && (
         <div className="combat-control-error">{controlError}</div>
+      )}
+
+      {combatActive && timeLeft !== null && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.25rem 0.5rem', marginBottom: '0.5rem',
+          background: timeLeft <= 10 ? 'rgba(231, 76, 60, 0.2)' : 'transparent',
+          border: timeLeft <= 10 ? '1px solid #e74c3c' : '1px solid transparent',
+          borderRadius: 4, transition: 'all 0.3s',
+        }}>
+          <span style={{ fontSize: '0.8rem', color: timeLeft <= 10 ? '#e74c3c' : 'var(--color-muted)' }}>
+            ⏱ {timeLeft}s
+          </span>
+          <input
+            type="number" min={10} max={300} value={turnDuration}
+            onChange={e => setTurnDuration(Number(e.target.value))}
+            style={{ width: 48, fontSize: '0.75rem', padding: '0.1rem 0.25rem',
+              background: 'var(--color-bg)', border: '1px solid var(--color-border)',
+              borderRadius: 3, color: 'var(--color-text)' }}
+            title="Seconds per turn"
+          />
+          <span style={{ fontSize: '0.7rem', color: 'var(--color-muted)' }}>s/turn</span>
+          <button
+            onClick={() => setTimeLeft(turnDuration)}
+            style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem',
+              background: 'none', border: '1px solid var(--color-border)',
+              borderRadius: 3, cursor: 'pointer', color: 'var(--color-muted)' }}
+          >↺</button>
+        </div>
       )}
 
       <div className="combat-list">
@@ -159,8 +270,25 @@ export function CombatTracker({ onClose, isDM }: { onClose: () => void; isDM: bo
             sessionId={sessionId}
             isDM={isDM}
             onRemove={handleRemoveCombatant}
+            onUseReaction={onUseReaction}
+            onLegendaryAction={onLegendaryAction}
           />
         ))}
+      </div>
+
+      {showConditions && (
+        <div className="combat-conditions-inline">
+          <ConditionReference onClose={() => setShowConditions(false)} />
+        </div>
+      )}
+
+      <div className="combat-conditions-footer">
+        <button
+          className="btn-ghost btn-sm combat-conditions-toggle"
+          onClick={() => setShowConditions((v) => !v)}
+        >
+          📖 Conditions
+        </button>
       </div>
 
       {sessionId && isDM && (
@@ -246,15 +374,22 @@ function CombatantRow({
   sessionId,
   isDM,
   onRemove,
+  onUseReaction,
+  onLegendaryAction,
 }: {
   combatant: Combatant
   isActive: boolean
   sessionId: string | null
   isDM: boolean
   onRemove: (name: string) => void
+  onUseReaction?: (name: string) => void
+  onLegendaryAction?: (name: string, delta: number) => void
 }) {
   const hpPct = combatant.hp_max > 0 ? (combatant.hp_current / combatant.hp_max) * 100 : 0
   const hpClass = hpPct > 50 ? 'high' : hpPct > 25 ? 'mid' : 'low'
+  const [editingHP, setEditingHP] = useState<{ name: string; delta: string } | null>(null)
+  const [showStatBlock, setShowStatBlock] = useState(false)
+  const statBlock = STAT_BLOCKS[combatant.name] ?? null
 
   return (
     <div className={`combat-row ${isActive ? 'combat-row--active' : ''} ${combatant.is_player ? 'combat-row--player' : 'combat-row--enemy'}`}>
@@ -266,25 +401,103 @@ function CombatantRow({
           {isActive && <span className="turn-arrow">▶ </span>}
           {combatant.name}
           {combatant.is_player && <span className="pc-badge">PC</span>}
+          {statBlock && (
+            <button
+              onClick={() => setShowStatBlock(v => !v)}
+              style={{ marginLeft: 4, fontSize: '0.65rem', padding: '0 3px', background: 'none', border: '1px solid var(--color-border,#333)', borderRadius: 3, cursor: 'pointer', color: 'var(--color-muted,#888)' }}
+              aria-label={`Show stat block for ${combatant.name}`}
+            >ℹ</button>
+          )}
+          {onUseReaction && isDM && (
+            <button
+              onClick={() => !combatant.reaction_used && onUseReaction(combatant.name)}
+              title={combatant.reaction_used ? 'Reaction used' : 'Use reaction'}
+              aria-label={`${combatant.reaction_used ? 'Reaction used' : 'Use reaction'} for ${combatant.name}`}
+              style={{ marginLeft: 4, fontSize: '0.65rem', padding: '0 3px', background: 'none', border: '1px solid var(--color-border,#333)', borderRadius: 3, cursor: combatant.reaction_used ? 'default' : 'pointer', color: combatant.reaction_used ? 'var(--color-muted,#888)' : 'var(--color-accent,#c4820a)', opacity: combatant.reaction_used ? 0.4 : 1 }}
+            >⚡</button>
+          )}
         </div>
+        {showStatBlock && statBlock && (
+          <div style={{ fontSize: '0.72rem', padding: '0.25rem 0.5rem', background: 'var(--color-bg,#0d0d1a)', border: '1px solid var(--color-accent,#c4820a)', borderRadius: 4, margin: '0.2rem 0', color: 'var(--color-text,#e0d6c8)' }}>
+            <strong>AC</strong> {statBlock.ac} · <strong>Speed</strong> {statBlock.speed} · <strong>CR</strong> {statBlock.cr}<br/>
+            <span style={{ color: 'var(--color-muted,#aaa)' }}>{statBlock.abilities}</span>
+          </div>
+        )}
         {combatant.conditions.length > 0 && (
           <div className="combat-conditions">
-            {combatant.conditions.map((cond) => (
-              <span key={cond} className="condition-tag">{cond}</span>
-            ))}
+            {combatant.conditions.map((cond, i) => {
+              const name = typeof cond === 'string' ? cond : cond.name
+              const dur = typeof cond === 'string' ? null : cond.duration
+              return (
+                <span
+                  key={`${name}-${i}`}
+                  className="condition-tag"
+                  title={dur !== null ? `${dur} turn(s) remaining` : ''}
+                >
+                  {name}{dur !== null ? ` (${dur})` : ''}
+                </span>
+              )
+            })}
           </div>
         )}
       </div>
       <div className="combat-row-hp">
-        <span className={`combat-hp-text hp-${hpClass}`}>
+        <span
+          onClick={() => setEditingHP({ name: combatant.name, delta: '' })}
+          style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}
+          title="Click to adjust HP"
+          className={`combat-hp-text hp-${hpClass}`}
+        >
           {combatant.hp_current}/{combatant.hp_max}
         </span>
+        {editingHP?.name === combatant.name && (
+          <span style={{ display: 'inline-flex', gap: '0.25rem', alignItems: 'center', marginLeft: '0.25rem' }}>
+            <input
+              type="number"
+              value={editingHP.delta}
+              onChange={e => setEditingHP({ name: combatant.name, delta: e.target.value })}
+              placeholder="±HP"
+              style={{ width: 52, fontSize: '0.75rem', padding: '0.1rem 0.25rem', background: 'var(--color-bg)', border: '1px solid var(--color-accent)', borderRadius: 3, color: 'var(--color-text)' }}
+              autoFocus
+              onKeyDown={async e => {
+                if (e.key === 'Enter') {
+                  const delta = parseInt(editingHP.delta)
+                  if (!isNaN(delta) && sessionId) {
+                    await api.combat.updateCombatantHP(sessionId, combatant.name, delta)
+                  }
+                  setEditingHP(null)
+                }
+                if (e.key === 'Escape') setEditingHP(null)
+              }}
+            />
+            <button onClick={async () => {
+              const delta = parseInt(editingHP.delta)
+              if (!isNaN(delta) && sessionId) {
+                await api.combat.updateCombatantHP(sessionId, combatant.name, delta)
+              }
+              setEditingHP(null)
+            }} style={{ fontSize: '0.7rem', padding: '0.1rem 0.3rem', background: 'var(--color-accent)', border: 'none', borderRadius: 3, cursor: 'pointer', color: 'var(--color-bg)' }}>✓</button>
+            <button onClick={() => setEditingHP(null)} style={{ fontSize: '0.7rem', padding: '0.1rem 0.3rem', background: 'none', border: '1px solid var(--color-border)', borderRadius: 3, cursor: 'pointer', color: 'var(--color-muted)' }}>✕</button>
+          </span>
+        )}
         <div className="combat-hp-bar">
           <div
             className={`combat-hp-fill hp-${hpClass}`}
             style={{ width: `${Math.max(0, Math.min(100, hpPct))}%` }}
           />
         </div>
+        {(combatant.legendary_actions_max ?? 0) > 0 && onLegendaryAction && (
+          <div style={{ fontSize: '0.72rem', marginTop: '0.2rem', color: 'var(--color-accent,#c4820a)' }}>
+            {'◆'.repeat(combatant.legendary_actions_remaining ?? 0)}{'◇'.repeat((combatant.legendary_actions_max ?? 0) - (combatant.legendary_actions_remaining ?? 0))}
+            {isDM && (
+              <button
+                onClick={() => onLegendaryAction(combatant.name, (combatant.legendary_actions_max ?? 0) - (combatant.legendary_actions_remaining ?? 0))}
+                style={{ marginLeft: 4, fontSize: '0.65rem', padding: '0 3px', background: 'none', border: '1px solid var(--color-border,#333)', borderRadius: 3, cursor: 'pointer', color: 'var(--color-muted,#888)' }}
+                aria-label={`Reset legendary actions for ${combatant.name}`}
+              >↺</button>
+            )}
+          </div>
+        )}
       </div>
       {sessionId && isDM && (
         <button
@@ -576,5 +789,25 @@ const combatStyles = `
   .combat-add-actions {
     display: flex;
     gap: var(--space-2);
+  }
+
+  .combat-conditions-footer {
+    border-top: 1px solid var(--border);
+    padding: var(--space-2) var(--space-3);
+    flex-shrink: 0;
+  }
+
+  .combat-conditions-toggle {
+    width: 100%;
+    font-size: var(--font-size-xs);
+  }
+
+  .combat-conditions-inline {
+    flex: 0 0 auto;
+    max-height: 300px;
+    overflow: hidden;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
   }
 `

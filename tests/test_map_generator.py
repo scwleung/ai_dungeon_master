@@ -10,7 +10,6 @@ from backend.services.map_generator import (
     ROOM_GENERIC,
     ROOM_TREASURE,
     WALL,
-    DungeonGenerator,
     generate_dungeon,
 )
 

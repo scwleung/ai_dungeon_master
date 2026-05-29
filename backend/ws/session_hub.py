@@ -2,13 +2,35 @@
 WebSocket session hub for the AI Dungeon Master application.
 
 Manages connections grouped by session room, tracks which player is behind
-each socket, and provides broadcasting / per-player targeting helpers.
+each socket, and provides broadcasting, per-socket targeting, and spectator
+management helpers.
+
+Key methods:
+  broadcast(session_id, message, exclude_ws?)
+      Send a JSON message to all WebSockets in a session room.  Used for
+      game events (DM narration, combat updates, dice results, etc.).
+
+  send_to_socket(ws, message)
+      Send a JSON message to one specific WebSocket object.  Used for
+      DM-only messages such as ``secret_roll_result`` that must never be
+      broadcast to other players.
+
+  send_to_player(session_id, player_id, message)
+      Send a JSON message to the socket registered for a given player_id.
+      Used to deliver ``dice_request`` directly to the targeted player.
+
+  mark_spectator(ws)
+      Flag a WebSocket as read-only.  Spectators receive all broadcast
+      messages but are silently blocked from sending actions
+      (``player_action``, ``voice_transcript``, ``dice_image``,
+      ``manual_roll``, ``dice_result``).
+
+  is_spectator(ws)
+      Return True if the given WebSocket was marked as spectator-only.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
 from typing import AsyncGenerator, Optional
 
 from fastapi import WebSocket
@@ -28,6 +50,8 @@ class SessionHub:
         self._rooms: dict[str, set[WebSocket]] = {}
         # ws -> (session_id, player_id)
         self._player_sockets: dict[WebSocket, tuple[str, str]] = {}
+        # spectator-only connections
+        self._spectators: set[WebSocket] = set()
 
     # ------------------------------------------------------------------
     # Connection management
@@ -51,6 +75,14 @@ class SessionHub:
         self._rooms[session_id].add(ws)
         self._player_sockets[ws] = (session_id, player_id)
 
+    def mark_spectator(self, ws: WebSocket) -> None:
+        """Mark a connected WebSocket as a spectator (read-only)."""
+        self._spectators.add(ws)
+
+    def is_spectator(self, ws: WebSocket) -> bool:
+        """Return True if the given WebSocket is a spectator connection."""
+        return ws in self._spectators
+
     def disconnect(self, ws: WebSocket) -> Optional[tuple[str, str]]:
         """
         Remove a WebSocket from its session room.
@@ -71,6 +103,8 @@ class SessionHub:
             room.discard(ws)
             if not room:
                 del self._rooms[session_id]
+
+        self._spectators.discard(ws)
 
         return session_id, player_id
 
@@ -191,6 +225,19 @@ class SessionHub:
             session_id,
             {"type": "dm_response_complete", "text": full_text},
         )
+
+    async def close_all(self, message: str = "Server is restarting. Please reconnect in a moment.") -> None:
+        """Send a notice to every connected socket and close them cleanly."""
+        all_sockets = list(self._rooms.values())
+        for room_sockets in all_sockets:
+            for ws in list(room_sockets):
+                try:
+                    await ws.send_json({"type": "system", "text": message})
+                    await ws.close(code=1001)
+                except Exception:
+                    pass
+        self._rooms.clear()
+        self._spectators.clear()
 
 
 # ---------------------------------------------------------------------------

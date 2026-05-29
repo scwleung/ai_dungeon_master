@@ -1,19 +1,27 @@
 import { create } from 'zustand'
 import { api, setAccessCode } from '../api/client'
 import type {
+  AmbientSound,
   AppView,
   Campaign,
   Character,
   Combatant,
+  DiceLogEntry,
   GameSettings,
+  Handout,
+  MapAnnotation,
   MapData,
   NarrativeMessage,
   NPC,
+  OOCEntry,
   Quest,
   RulesetName,
   Session,
   ThemeName,
+  TimelineEntry,
+  Toast,
   TTSProvider,
+  WorldTime,
 } from '../types'
 
 function generateId(): string {
@@ -49,6 +57,7 @@ function loadSettings(): GameSettings {
         theme: (parsed.theme as ThemeName) ?? 'fantasy',
         playerId: parsed.playerId ?? generateId(),
         playerName: parsed.playerName ?? 'Adventurer',
+        muteSFX: parsed.muteSFX ?? false,
       }
     }
   } catch {
@@ -60,6 +69,7 @@ function loadSettings(): GameSettings {
     theme: 'fantasy',
     playerId: generateId(),
     playerName: 'Adventurer',
+    muteSFX: false,
   }
 }
 
@@ -81,6 +91,8 @@ export interface PendingRoll {
   skill: string
   /** Difficulty class the result must meet or exceed; absent for open rolls. */
   dc?: number
+  advantage?: boolean
+  disadvantage?: boolean
 }
 
 /** A player who has joined the current session, as reported by the server. */
@@ -243,6 +255,101 @@ export interface GameStore {
   sceneImage: { url: string; description: string } | null
   /** Set or clear the scene image. */
   setSceneImage: (img: { url: string; description: string } | null) => void
+
+  // Dice log
+
+  /** Ordered list of dice roll log entries, newest first (max 100). */
+  diceLog: DiceLogEntry[]
+  /** Prepend a new entry to the dice log; keeps last 100 entries. */
+  addDiceLogEntry: (entry: DiceLogEntry) => void
+
+  // Session notes
+
+  /** Collaborative session notes text. */
+  sessionNotes: string
+  /** Set notes in store without persisting. */
+  setSessionNotes: (notes: string) => void
+  /** Fetch notes from the server and update the store. */
+  loadSessionNotes: (sessionId: string) => Promise<void>
+  /** Persist updated notes to the server. */
+  saveSessionNotes: (sessionId: string, notes: string) => Promise<void>
+
+  // Spectator mode
+
+  /** Whether the current connection is a read-only spectator. */
+  isSpectator: boolean
+  /** Set the spectator flag. */
+  setIsSpectator: (val: boolean) => void
+  /** Join as a spectator for a session (no access code required). */
+  joinAsSpectator: (sessionId: string) => Promise<void>
+
+  // Party state
+  partyState: { gold: number; items: string[] }
+  loadPartyState: (campaignId: string) => Promise<void>
+  setPartyState: (state: { gold: number; items: string[] }) => void
+  savePartyState: (campaignId: string, state: { gold: number; items: string[] }) => Promise<void>
+
+  // Pinned notes
+  pinnedNotes: Array<{ id: string; text: string }>
+  loadPinnedNotes: (sessionId: string) => Promise<void>
+  setPinnedNotes: (pins: Array<{ id: string; text: string }>) => void
+  savePinnedNotes: (sessionId: string, pins: Array<{ id: string; text: string }>) => Promise<void>
+
+  // Map annotations
+  mapAnnotations: MapAnnotation[]
+  setMapAnnotations: (annotations: MapAnnotation[]) => void
+  loadMapAnnotations: (campaignId: string) => Promise<void>
+  saveMapAnnotations: (campaignId: string, annotations: MapAnnotation[]) => Promise<void>
+
+  // Ambient sound
+  currentAmbient: AmbientSound
+  setCurrentAmbient: (sound: AmbientSound) => void
+
+  // Recording players
+  recordingPlayers: Set<string>
+  setPlayerRecording: (playerId: string, active: boolean) => void
+
+  // Dice macros
+  diceMacros: Array<{ id: string; name: string; notation: string }>
+  setDiceMacros: (macros: Array<{ id: string; name: string; notation: string }>) => void
+
+  // World time
+  worldTime: WorldTime | null
+  setWorldTime: (t: WorldTime) => void
+  loadWorldTime: (campaignId: string) => Promise<void>
+  saveWorldTime: (campaignId: string, data: Partial<WorldTime>) => Promise<void>
+
+  // Handouts
+  handouts: Handout[]
+  activeHandout: Handout | null
+  setHandouts: (h: Handout[]) => void
+  addHandout: (h: Handout) => void
+  setActiveHandout: (h: Handout | null) => void
+  loadHandouts: (campaignId: string) => Promise<void>
+
+  // Timeline
+  timeline: TimelineEntry[]
+  setTimeline: (t: TimelineEntry[]) => void
+  loadTimeline: (campaignId: string) => Promise<void>
+
+  // OOC Chat
+  oocMessages: OOCEntry[]
+  addOOCMessage: (entry: OOCEntry) => void
+  clearOOCMessages: () => void
+
+  // Ready state
+  readyState: Record<string, boolean>
+  setReadyResponse: (playerId: string, ready: boolean) => void
+  clearReadyState: () => void
+
+  // Toasts
+  toasts: Toast[]
+  addToast: (message: string, type?: Toast['type'], duration?: number) => void
+  removeToast: (id: string) => void
+
+  // Secret rolls
+  secretRolls: Array<{ id: string; dice: string; values: number[]; total: number; reason: string; timestamp: string }>
+  addSecretRoll: (roll: { dice: string; values: number[]; total: number; reason: string }) => void
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -407,4 +514,193 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // Scene illustration
   sceneImage: null,
   setSceneImage: (img) => set({ sceneImage: img }),
+
+  // Dice log
+  diceLog: (() => {
+    try {
+      return JSON.parse(localStorage.getItem('diceLog') ?? '[]').slice(0, 50) as DiceLogEntry[]
+    } catch {
+      return []
+    }
+  })(),
+  addDiceLogEntry: (entry) =>
+    set((state) => {
+      const updated = [entry, ...state.diceLog].slice(0, 100)
+      try {
+        localStorage.setItem('diceLog', JSON.stringify(updated.slice(0, 50)))
+      } catch { /* ignore */ }
+      return { diceLog: updated }
+    }),
+
+  // Session notes
+  sessionNotes: '',
+  setSessionNotes: (notes) => set({ sessionNotes: notes }),
+  loadSessionNotes: async (sessionId) => {
+    const res = await api.sessions.getNotes(sessionId)
+    set({ sessionNotes: res.notes ?? '' })
+  },
+  saveSessionNotes: async (sessionId, notes) => {
+    await api.sessions.updateNotes(sessionId, notes)
+  },
+
+  // Spectator mode
+  isSpectator: false,
+  setIsSpectator: (val) => set({ isSpectator: val }),
+  joinAsSpectator: async (sessionId) => {
+    set({
+      isSpectator: true,
+      activeSession: { id: sessionId, campaign_id: '', started_at: '', messages: [] },
+      view: 'session',
+    })
+  },
+
+  // Party state
+  partyState: { gold: 0, items: [] },
+  loadPartyState: async (campaignId) => {
+    try {
+      const res = await api.party.get(campaignId)
+      set({ partyState: { gold: res.gold, items: res.items } })
+    } catch {
+      // ignore — party state may not exist yet
+    }
+  },
+  setPartyState: (state) => set({ partyState: state }),
+  savePartyState: async (campaignId, state) => {
+    const tokens = get().campaignTokens
+    const accessCode = tokens[campaignId] ?? ''
+    set({ partyState: state })
+    await api.party.update(campaignId, state, accessCode)
+  },
+
+  // Pinned notes
+  pinnedNotes: [],
+  loadPinnedNotes: async (sessionId) => {
+    try {
+      const res = await api.pins.get(sessionId)
+      set({ pinnedNotes: res.pins })
+    } catch {
+      // ignore — pins may not exist yet
+    }
+  },
+  setPinnedNotes: (pins) => set({ pinnedNotes: pins }),
+  savePinnedNotes: async (sessionId, pins) => {
+    set({ pinnedNotes: pins })
+    await api.pins.update(sessionId, pins)
+  },
+
+  // Map annotations
+  mapAnnotations: [],
+  setMapAnnotations: (annotations) => set({ mapAnnotations: annotations }),
+  loadMapAnnotations: async (campaignId) => {
+    try {
+      const res = await api.map.getAnnotations(campaignId)
+      set({ mapAnnotations: res.annotations })
+    } catch {
+      // ignore — annotations may not exist yet
+    }
+  },
+  saveMapAnnotations: async (campaignId, annotations) => {
+    set({ mapAnnotations: annotations })
+    try {
+      await api.map.updateAnnotations(campaignId, annotations)
+    } catch {
+      // ignore
+    }
+  },
+
+  // Ambient sound
+  currentAmbient: 'none',
+  setCurrentAmbient: (sound) => set({ currentAmbient: sound }),
+
+  // Recording players
+  recordingPlayers: new Set(),
+  setPlayerRecording: (playerId, active) => set(state => {
+    const next = new Set(state.recordingPlayers)
+    if (active) next.add(playerId)
+    else next.delete(playerId)
+    return { recordingPlayers: next }
+  }),
+
+  // Dice macros
+  diceMacros: (() => {
+    try {
+      const raw = localStorage.getItem('dm_dice_macros')
+      if (raw) return JSON.parse(raw) as Array<{ id: string; name: string; notation: string }>
+    } catch { /* ignore */ }
+    return []
+  })(),
+  setDiceMacros: (macros) => {
+    set({ diceMacros: macros })
+    try {
+      localStorage.setItem('dm_dice_macros', JSON.stringify(macros))
+    } catch { /* ignore */ }
+  },
+
+  // World time
+  worldTime: null,
+  setWorldTime: (t) => set({ worldTime: t }),
+  loadWorldTime: async (campaignId) => {
+    try {
+      const res = await api.campaigns.getWorldTime(campaignId)
+      set({ worldTime: res.world_time })
+    } catch {
+      // ignore — world time may not exist yet
+    }
+  },
+  saveWorldTime: async (campaignId, data) => {
+    const res = await api.campaigns.updateWorldTime(campaignId, data)
+    set({ worldTime: res.world_time })
+  },
+
+  // Handouts
+  handouts: [],
+  activeHandout: null,
+  setHandouts: (h) => set({ handouts: h }),
+  addHandout: (h) => set((state) => ({ handouts: [...state.handouts, h] })),
+  setActiveHandout: (h) => set({ activeHandout: h }),
+  loadHandouts: async (campaignId) => {
+    try {
+      const res = await api.campaigns.getHandouts(campaignId)
+      set({ handouts: res.handouts })
+    } catch {
+      // ignore — handouts may not exist yet
+    }
+  },
+
+  // Timeline
+  timeline: [],
+  setTimeline: (t) => set({ timeline: t }),
+  loadTimeline: async (campaignId) => {
+    try {
+      const res = await api.campaigns.getTimeline(campaignId)
+      set({ timeline: res.timeline })
+    } catch {
+      // ignore — timeline may not exist yet
+    }
+  },
+
+  // OOC Chat
+  oocMessages: [],
+  addOOCMessage: (entry) => set((state) => ({ oocMessages: [...state.oocMessages, entry] })),
+  clearOOCMessages: () => set({ oocMessages: [] }),
+
+  // Ready state
+  readyState: {},
+  setReadyResponse: (playerId, ready) => set((state) => ({ readyState: { ...state.readyState, [playerId]: ready } })),
+  clearReadyState: () => set({ readyState: {} }),
+
+  // Toasts
+  toasts: [],
+  addToast: (message, type = 'info', duration = 3000) => {
+    const id = crypto.randomUUID()
+    set(state => ({ toasts: [...state.toasts, { id, message, type, duration }] }))
+    setTimeout(() => get().removeToast(id), duration)
+  },
+  removeToast: (id) => set(state => ({ toasts: state.toasts.filter(t => t.id !== id) })),
+
+  // Secret rolls
+  secretRolls: [],
+  addSecretRoll: (roll) => set(state => ({
+    secretRolls: [{ ...roll, id: crypto.randomUUID(), timestamp: new Date().toISOString() }, ...state.secretRolls].slice(0, 50)
+  })),
 }))

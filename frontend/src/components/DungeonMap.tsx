@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useGameStore } from '../store/gameStore'
-import type { MapData, MapRoom } from '../types'
+import type { MapAnnotation, MapData, MapRoom } from '../types'
 
 // ---------------------------------------------------------------------------
 // Tile constants (must match backend/services/map_generator.py)
@@ -191,6 +191,9 @@ function renderMap(
 
 interface DungeonMapProps {
   onClose: () => void
+  annotations?: MapAnnotation[]
+  onAnnotationsChange?: (annotations: MapAnnotation[]) => void
+  isDM?: boolean
 }
 
 /**
@@ -212,7 +215,7 @@ interface DungeonMapProps {
  *
  * Mounts inside {@link SessionView} as a toggleable right-side panel.
  */
-export function DungeonMap({ onClose }: DungeonMapProps) {
+export function DungeonMap({ onClose, annotations, onAnnotationsChange, isDM }: DungeonMapProps) {
   const { mapData, activeCampaign, loadMap, generateMap } = useGameStore()
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -275,7 +278,30 @@ export function DungeonMap({ onClose }: DungeonMapProps) {
     canvas.style.height = `${h}px`
 
     renderMap(canvas, mapData, visible, offset.x, offset.y, zoom)
-  }, [mapData, visible, offset, zoom])
+
+    // Draw annotations
+    if (annotations && annotations.length > 0) {
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        const dpr = window.devicePixelRatio || 1
+        const tw = TILE_PX * zoom
+        for (const ann of annotations) {
+          const cx = (offset.x + ann.x * tw + tw / 2) * dpr
+          const cy = (offset.y + ann.y * tw + tw / 2) * dpr
+          const color = ann.color ?? '#f39c12'
+          ctx.beginPath()
+          ctx.arc(cx, cy, 5 * dpr, 0, Math.PI * 2)
+          ctx.fillStyle = color
+          ctx.fill()
+          ctx.font = `${10 * dpr}px sans-serif`
+          ctx.fillStyle = '#fff'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'bottom'
+          ctx.fillText(ann.text, cx, cy - 6 * dpr)
+        }
+      }
+    }
+  }, [mapData, visible, offset, zoom, annotations])
 
   // Handle window resize
   useEffect(() => {
@@ -283,6 +309,31 @@ export function DungeonMap({ onClose }: DungeonMapProps) {
     if (containerRef.current) observer.observe(containerRef.current)
     return () => observer.disconnect()
   }, [fitToCanvas])
+
+  // ---- Annotation click handler ----
+  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDM || !onAnnotationsChange) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+    const px = (e.clientX - rect.left) * scaleX
+    const py = (e.clientY - rect.top) * scaleY
+    const tileSize = TILE_PX * zoom
+    const tx = Math.floor(px / (tileSize * (window.devicePixelRatio || 1)))
+    const ty = Math.floor(py / (tileSize * (window.devicePixelRatio || 1)))
+    const text = window.prompt('Annotation text (empty to cancel):')
+    if (!text) return
+    const newAnnotation: MapAnnotation = {
+      id: crypto.randomUUID(),
+      x: tx, y: ty,
+      text,
+      player_name: 'DM',
+      color: '#f39c12',
+    }
+    onAnnotationsChange([...(annotations ?? []), newAnnotation])
+  }, [isDM, onAnnotationsChange, annotations, zoom])
 
   // ---- Pan handlers ----
   function onMouseDown(e: React.MouseEvent) {
@@ -372,7 +423,7 @@ export function DungeonMap({ onClose }: DungeonMapProps) {
             <span>No map available</span>
           </div>
         )}
-        <canvas ref={canvasRef} className="map-canvas" />
+        <canvas ref={canvasRef} className="map-canvas" onClick={handleCanvasClick} />
       </div>
 
       {/* Legend */}
@@ -398,6 +449,22 @@ export function DungeonMap({ onClose }: DungeonMapProps) {
             <span className="legend-swatch" style={{ background: COLORS.fog }} />
             Unexplored
           </span>
+        </div>
+      )}
+
+      {/* Annotation list */}
+      {isDM && annotations && annotations.length > 0 && (
+        <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', padding: '0 0.5rem 0.5rem' }}>
+          {annotations.map(a => (
+            <div key={a.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.25rem' }}>
+              <span style={{ color: a.color ?? '#f39c12' }}>📌</span>
+              <span>{a.text} ({a.x},{a.y})</span>
+              <button
+                onClick={() => onAnnotationsChange?.(annotations.filter(x => x.id !== a.id))}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', fontSize: '0.7rem' }}
+              >✕</button>
+            </div>
+          ))}
         </div>
       )}
 

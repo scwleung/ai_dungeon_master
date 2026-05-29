@@ -10,7 +10,7 @@ Notation examples: ``"1d20"``, ``"2d6+3"``, ``"4d8-1"``, ``"d6"``.
 
 import random
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

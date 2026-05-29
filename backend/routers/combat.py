@@ -12,12 +12,18 @@ Routes:
 
 from __future__ import annotations
 
+import json
+import random
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth import require_session_access
+from backend.database import get_db
+from backend.models.character import Character
 from backend.services.game_state import Combatant, game_state_manager
 from backend.ws.session_hub import session_hub
 
@@ -119,6 +125,75 @@ async def remove_combatant(
         state.turn_index = state.turn_index % len(state.combatants)
     else:
         state.turn_index = 0
+    payload = {"type": "combat_update", **state.to_dict()}
+    await session_hub.broadcast(session_id, payload)
+    return state.to_dict()
+
+
+class CombatantHPUpdate(BaseModel):
+    delta: int  # positive = heal, negative = damage
+
+
+@router.patch("/{session_id}/combat/combatants/{combatant_name}/hp")
+async def update_combatant_hp(
+    session_id: str,
+    combatant_name: str,
+    body: CombatantHPUpdate,
+    _: None = Depends(require_session_access),
+):
+    """Apply an HP delta to a combatant (positive = heal, negative = damage)."""
+    state = game_state_manager.get_combat(session_id)
+    if not state.active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active combat encounter for this session.",
+        )
+    combatant = next((c for c in state.combatants if c.name == combatant_name), None)
+    if combatant is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Combatant {combatant_name!r} not found.",
+        )
+    combatant.hp_current = max(0, min(combatant.hp_max, combatant.hp_current + body.delta))
+    payload = {"type": "combat_update", **state.to_dict()}
+    await session_hub.broadcast(session_id, payload)
+    return state.to_dict()
+
+
+@router.post("/{session_id}/combat/roll-initiative")
+async def roll_initiative(
+    session_id: str,
+    _: None = Depends(require_session_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """Auto-roll 1d20 + DEX modifier initiative for all combatants and re-sort."""
+    state = game_state_manager.get_combat(session_id)
+    if not state.active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active combat encounter for this session.",
+        )
+    # Build DEX score map from character records
+    char_dex: dict[str, int] = {}
+    for c in state.combatants:
+        if c.character_id:
+            result = await db.execute(select(Character).where(Character.id == c.character_id))
+            char = result.scalar_one_or_none()
+            if char:
+                try:
+                    stats = json.loads(char.stats) if isinstance(char.stats, str) else char.stats
+                    char_dex[c.character_id] = int(stats.get("DEX", 10))
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    char_dex[c.character_id] = 10
+
+    for combatant in state.combatants:
+        dex = char_dex.get(combatant.character_id, 10) if combatant.character_id else 10
+        dex_mod = (dex - 10) // 2
+        combatant.initiative = random.randint(1, 20) + dex_mod
+
+    state.combatants.sort(key=lambda c: c.initiative, reverse=True)
+    state.turn_index = 0
+
     payload = {"type": "combat_update", **state.to_dict()}
     await session_hub.broadcast(session_id, payload)
     return state.to_dict()

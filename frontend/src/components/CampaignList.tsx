@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useGameStore } from '../store/gameStore'
+import { api } from '../api/client'
 import { CampaignSetup } from './CampaignSetup'
 import type { Campaign } from '../types'
 
@@ -34,12 +35,21 @@ function formatDate(iso: string): string {
  * Reads from and writes to the Zustand store; no props are required.
  */
 export function CampaignList() {
-  const { campaigns, deleteCampaign, setActiveCampaign, setView, loadCharacters, loadSessions } =
+  const { campaigns, deleteCampaign, setActiveCampaign, setView, loadCharacters, loadSessions, loadCampaigns, storeCampaignToken } =
     useGameStore()
   const [showSetup, setShowSetup] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [importMessage, setImportMessage] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    loadCampaigns().finally(() => setLoading(false))
+  }, [loadCampaigns])
 
   async function handleContinue(campaign: Campaign) {
     setActiveCampaign(campaign)
@@ -49,6 +59,29 @@ export function CampaignList() {
       // Non-fatal — data can load lazily in campaign detail
     }
     setView('campaign_detail')
+  }
+
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setError(null)
+    setImportMessage(null)
+    try {
+      const text = await file.text()
+      const payload = JSON.parse(text) as unknown
+      const result = await api.campaigns.import(payload)
+      storeCampaignToken(result.id, result.access_code)
+      await loadCampaigns()
+      setImportMessage(`Campaign "${result.name}" imported successfully!`)
+      setTimeout(() => setImportMessage(null), 4000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to import campaign.')
+    } finally {
+      setImporting(false)
+      // Reset file input so the same file can be re-selected
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
   }
 
   async function handleDelete(id: string) {
@@ -75,14 +108,52 @@ export function CampaignList() {
               : `${campaigns.length} campaign${campaigns.length !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <button className="btn-primary btn-lg" onClick={() => setShowSetup(true)}>
-          + New Campaign
-        </button>
+        <div className="campaign-list-header-actions">
+          <button
+            className="btn-ghost btn-sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            title="Import campaign from JSON file"
+          >
+            {importing ? 'Importing...' : '⬆ Import'}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            style={{ display: 'none' }}
+            onChange={handleImport}
+          />
+          <button className="btn-primary btn-lg" onClick={() => setShowSetup(true)}>
+            + New Campaign
+          </button>
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+      {importMessage && <div className="import-success-banner">{importMessage}</div>}
 
-      {campaigns.length === 0 ? (
+      {loading ? (
+        <>
+          <style>{`
+            @keyframes shimmer {
+              0% { background-position: -200% 0; }
+              100% { background-position: 200% 0; }
+            }
+            .skeleton {
+              background: linear-gradient(90deg, var(--color-surface, #1a1a2e) 25%, var(--color-border, #333) 50%, var(--color-surface, #1a1a2e) 75%);
+              background-size: 200% 100%;
+              animation: shimmer 1.5s infinite;
+              border-radius: 6px;
+            }
+          `}</style>
+          <div className="campaign-grid">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="skeleton" style={{ height: 80, marginBottom: '0.75rem' }} />
+            ))}
+          </div>
+        </>
+      ) : campaigns.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">⚔</div>
           <h2>No Campaigns Yet</h2>
@@ -182,6 +253,23 @@ export function CampaignList() {
           justify-content: space-between;
           gap: var(--space-4);
           margin-bottom: var(--space-6);
+        }
+
+        .campaign-list-header-actions {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+          flex-shrink: 0;
+        }
+
+        .import-success-banner {
+          padding: var(--space-3) var(--space-4);
+          background: rgba(45, 110, 45, 0.15);
+          border: 1px solid var(--accent-success);
+          border-radius: var(--radius);
+          color: var(--accent-success);
+          font-size: var(--font-size-sm);
+          margin-bottom: var(--space-4);
         }
 
         .page-title {

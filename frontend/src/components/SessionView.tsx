@@ -1,16 +1,38 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { api } from '../api/client'
 import { useGameStore } from '../store/gameStore'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { NarrativeLog } from './NarrativeLog'
+import { PartyPanel } from './PartyPanel'
 import { PlayerInput } from './PlayerInput'
 import { CharacterSheet } from './CharacterSheet'
 import { CombatTracker } from './CombatTracker'
 import { DiceCamera } from './DiceCamera'
+import { DiceLog } from './DiceLog'
 import { DiceRoller } from './DiceRoller'
 import { DMVoice } from './DMVoice'
 import { DungeonMap } from './DungeonMap'
 import { NPCTracker } from './NPCTracker'
 import { QuestTracker } from './QuestTracker'
+import { SessionNotes } from './SessionNotes'
+import EncounterBuilder from './EncounterBuilder'
+import DiceMacros from './DiceMacros'
+import AmbientSound from './AmbientSound'
+import WorldClock from './WorldClock'
+import Handouts from './Handouts'
+import Bestiary from './Bestiary'
+import OOCChat from './OOCChat'
+import DMNotes from './DMNotes'
+import ReadAloud from './ReadAloud'
+import SpellReference from './SpellReference'
+import MagicItems from './MagicItems'
+import Equipment from './Equipment'
+import ToastProvider from './ToastProvider'
+import { WorldStateViewer } from './WorldStateViewer'
+import { TrapGenerator } from './TrapGenerator'
+import { NPCRelationships } from './NPCRelationships'
+import { PersonalNotes } from './PersonalNotes'
+import { SpellQuickCast } from './SpellQuickCast'
 
 /**
  * Root layout for an active play session.
@@ -52,8 +74,32 @@ export function SessionView() {
     setSceneImage,
     updateCharacter,
     loadQuests,
+    loadSessionNotes,
+    loadPartyState,
+    loadPinnedNotes,
+    savePinnedNotes,
+    pinnedNotes,
     endSession,
     setView,
+    isSpectator,
+    mapAnnotations,
+    loadMapAnnotations,
+    saveMapAnnotations,
+    currentAmbient,
+    setCurrentAmbient,
+    recordingPlayers,
+    worldTime,
+    loadWorldTime,
+    saveWorldTime,
+    handouts,
+    loadHandouts,
+    activeHandout,
+    setActiveHandout,
+    messages,
+    readyState,
+    clearReadyState,
+    secretRolls,
+    addToast,
   } = useGameStore()
 
   const isDM = !!(activeCampaign && campaignTokens[activeCampaign.id])
@@ -65,12 +111,46 @@ export function SessionView() {
   const [showCombatPanel, setShowCombatPanel] = useState(false)
   const [showNpcPanel, setShowNpcPanel] = useState(false)
   const [showQuestPanel, setShowQuestPanel] = useState(false)
+  const [showDiceLogPanel, setShowDiceLogPanel] = useState(false)
+  const [showNotesPanel, setShowNotesPanel] = useState(false)
+  const [showPartyPanel, setShowPartyPanel] = useState(false)
+  const [showEncounterBuilder, setShowEncounterBuilder] = useState(false)
+  const [showDiceMacros, setShowDiceMacros] = useState(false)
+  const [showAmbientPanel, setShowAmbientPanel] = useState(false)
+  const [showWorldClock, setShowWorldClock] = useState(false)
+  const [showHandouts, setShowHandouts] = useState(false)
+  const [showBestiary, setShowBestiary] = useState(false)
+  const [showOOC, setShowOOC] = useState(false)
+  const [showDMNotes, setShowDMNotes] = useState(false)
+  const [showReadAloud, setShowReadAloud] = useState(false)
+  const [showSpellRef, setShowSpellRef] = useState(false)
+  const [showReadyCheck, setShowReadyCheck] = useState(false)
+  const [readyCheckMsg, setReadyCheckMsg] = useState('Are you ready to continue?')
+  const [showNameGen, setShowNameGen] = useState(false)
+  const [nameGenRace, setNameGenRace] = useState('human')
+  const [generatedNames, setGeneratedNames] = useState<string[]>([])
+  const [showMagicItems, setShowMagicItems] = useState(false)
+  const [showEquipment, setShowEquipment] = useState(false)
+  const [showSecretRolls, setShowSecretRolls] = useState(false)
+  const [showWorldState, setShowWorldState] = useState(false)
+  const [showTrapGen, setShowTrapGen] = useState(false)
+  const [showNpcRelationships, setShowNpcRelationships] = useState(false)
+  const [showPersonalNotes, setShowPersonalNotes] = useState(false)
+  const [sceneInput, setSceneInput] = useState('')
+  const [showSceneInput, setShowSceneInput] = useState(false)
+  const [secretDice, setSecretDice] = useState('1d20')
+  const [secretReason, setSecretReason] = useState('')
+  const [showAddPin, setShowAddPin] = useState(false)
+  const [pinInput, setPinInput] = useState('')
   const [endingSession, setEndingSession] = useState(false)
   const [endError, setEndError] = useState<string | null>(null)
   const [copiedInvite, setCopiedInvite] = useState(false)
+  const [copiedSpectator, setCopiedSpectator] = useState(false)
 
-  const { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll } =
+  const { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate, sendOOC, sendReadyCheck, sendReadyResponse, sendSecretRoll, sendSceneMarker } =
     useWebSocket(activeSession?.id ?? null)
+
+  const sendingRef = useRef(false)
 
   // Auto-show dice camera and dice roller when a roll is pending
   useEffect(() => {
@@ -94,6 +174,39 @@ export function SessionView() {
     }
   }, [activeCampaign, loadQuests])
 
+  // Load session notes when the session starts
+  useEffect(() => {
+    if (activeSession?.id) {
+      loadSessionNotes(activeSession.id).catch(() => {})
+      loadPinnedNotes(activeSession.id).catch(() => {})
+    }
+  }, [activeSession?.id, loadSessionNotes, loadPinnedNotes])
+
+  // Load party state and map annotations when campaign is set
+  useEffect(() => {
+    if (activeCampaign) {
+      loadPartyState(activeCampaign.id).catch(() => {})
+      loadMapAnnotations(activeCampaign.id).catch(() => {})
+      loadWorldTime(activeCampaign.id)
+      loadHandouts(activeCampaign.id)
+    }
+  }, [activeCampaign, loadPartyState, loadMapAnnotations, loadWorldTime, loadHandouts])
+
+  function handleRemovePin(id: string) {
+    if (!activeSession) return
+    const next = pinnedNotes.filter((p) => p.id !== id)
+    savePinnedNotes(activeSession.id, next).catch(console.error)
+  }
+
+  function handleAddPin(e: React.FormEvent) {
+    e.preventDefault()
+    if (!activeSession || !pinInput.trim()) return
+    const next = [...pinnedNotes, { id: crypto.randomUUID(), text: pinInput.trim() }]
+    savePinnedNotes(activeSession.id, next).catch(console.error)
+    setPinInput('')
+    setShowAddPin(false)
+  }
+
   // Find current player's character
   const myCharacter = characters.find(
     (c) => c.player_name === settings.playerName
@@ -109,6 +222,25 @@ export function SessionView() {
       setEndError(err instanceof Error ? err.message : 'Failed to end session.')
       setEndingSession(false)
     }
+  }
+
+  async function handleCopySpectatorLink() {
+    if (!activeSession) return
+    const url = `${window.location.origin}${window.location.pathname}?spectate=${activeSession.id}`
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      const el = document.createElement('textarea')
+      el.value = url
+      el.style.position = 'fixed'
+      el.style.opacity = '0'
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+    }
+    setCopiedSpectator(true)
+    setTimeout(() => setCopiedSpectator(false), 1500)
   }
 
   async function handleCopyInvite() {
@@ -152,7 +284,8 @@ export function SessionView() {
             <span className="conn-dot" />
             {connected ? 'Connected' : 'Reconnecting...'}
           </div>
-          {isDM && <span className="dm-badge">DM</span>}
+          {isDM && !isSpectator && <span className="dm-badge">DM</span>}
+          {isSpectator && <span className="spectator-badge">Spectator</span>}
         </div>
 
         {/* Active Players */}
@@ -171,11 +304,32 @@ export function SessionView() {
 
         <div className="session-actions">
           <button
+            className={`party-toggle-btn btn-ghost btn-sm ${showPartyPanel ? 'active' : ''}`}
+            onClick={() => setShowPartyPanel((v) => !v)}
+            title={showPartyPanel ? 'Hide party panel' : 'Show party panel'}
+          >
+            💰 Party
+          </button>
+          <button
             className={`dice-toggle-btn btn-ghost btn-sm ${showDiceRoller ? 'active' : ''}`}
             onClick={() => setShowDiceRoller((v) => !v)}
             title={showDiceRoller ? 'Hide dice roller' : 'Show dice roller'}
           >
             🎲 Dice
+          </button>
+          <button
+            className={`dice-log-toggle-btn btn-ghost btn-sm ${showDiceLogPanel ? 'active' : ''}`}
+            onClick={() => setShowDiceLogPanel((v) => !v)}
+            title={showDiceLogPanel ? 'Hide dice log' : 'Show dice log'}
+          >
+            🎲 Log
+          </button>
+          <button
+            className={`notes-toggle-btn btn-ghost btn-sm ${showNotesPanel ? 'active' : ''}`}
+            onClick={() => setShowNotesPanel((v) => !v)}
+            title={showNotesPanel ? 'Hide session notes' : 'Show session notes'}
+          >
+            📝 Notes
           </button>
           <button
             className={`map-toggle-btn btn-ghost btn-sm ${showMapPanel ? 'active' : ''}`}
@@ -214,13 +368,123 @@ export function SessionView() {
               ☰ Sheet
             </button>
           )}
-          {isDM && (
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowWorldClock(true)}
+            >⏰ Time</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowHandouts(true)}
+            >📜 Handouts</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowBestiary(true)}
+            >📖 Bestiary</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowEncounterBuilder(v => !v)}
+              title="Open encounter builder"
+            >
+              ⚔ Encounter
+            </button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowDiceMacros(v => !v)}
+              title="Open dice macros"
+            >
+              🎲 Macros
+            </button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setShowAmbientPanel(v => !v)}
+              title="Open ambient sound"
+            >
+              🎵 Ambient
+            </button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowOOC(v => !v)}>💬 OOC</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowDMNotes(true)}>🔒 DM Notes</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowReadAloud(true)}>📢 Read Aloud</button>
+          )}
+          <button className="btn-ghost btn-sm" onClick={() => setShowSpellRef(v => !v)}>✨ Spells</button>
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowReadyCheck(v => !v)}>🙋 Ready Check</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowNameGen(v => !v)}>🎲 Names</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowMagicItems(true)}>💎 Magic Items</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowEquipment(true)}>⚔ Equipment</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className={`btn-ghost btn-sm ${showWorldState ? 'active' : ''}`}
+              onClick={() => setShowWorldState(v => !v)}
+              title="Toggle world state viewer"
+            >🌍 World</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className={`btn-ghost btn-sm ${showTrapGen ? 'active' : ''}`}
+              onClick={() => setShowTrapGen(v => !v)}
+              title="Toggle trap/puzzle/shop generator"
+            >🪤 Traps</button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className={`btn-ghost btn-sm ${showNpcRelationships ? 'active' : ''}`}
+              onClick={() => setShowNpcRelationships(v => !v)}
+              title="Toggle NPC relationship web"
+            >🕸 NPC Web</button>
+          )}
+          {!isDM && !isSpectator && (
+            <button
+              className={`btn-ghost btn-sm ${showPersonalNotes ? 'active' : ''}`}
+              onClick={() => setShowPersonalNotes(v => !v)}
+              title="Toggle private notes"
+            >🔒 Notes</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowSceneInput(v => !v)}>🎬 Scene</button>
+          )}
+          {isDM && !isSpectator && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowSecretRolls(v => !v)}>🎲 Secret Roll</button>
+          )}
+          {isDM && !isSpectator && (
             <button
               className="btn-ghost btn-sm invite-btn"
               onClick={handleCopyInvite}
               title="Copy invite link"
             >
               {copiedInvite ? 'Copied!' : '🔗 Invite'}
+            </button>
+          )}
+          {isDM && !isSpectator && (
+            <button
+              className="btn-ghost btn-sm spectator-link-btn"
+              onClick={handleCopySpectatorLink}
+              title="Copy spectator link (no access code required)"
+            >
+              {copiedSpectator ? 'Copied!' : '👁 Spectator Link'}
             </button>
           )}
           <button
@@ -261,15 +525,251 @@ export function SessionView() {
               )}
             </div>
           )}
+          {/* Pinned Notes Banner */}
+          {pinnedNotes.length > 0 && (
+            <div className="pinned-notes-banner">
+              <span className="pinned-notes-icon">📌</span>
+              <div className="pinned-notes-list">
+                {pinnedNotes.map((pin) => (
+                  <div key={pin.id} className="pinned-note">
+                    <span className="pinned-note-text">{pin.text}</span>
+                    {isDM && (
+                      <button
+                        className="pinned-note-remove"
+                        onClick={() => handleRemovePin(pin.id)}
+                        title="Remove pin"
+                        aria-label="Remove pin"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {isDM && (
+                showAddPin ? (
+                  <form className="pinned-add-form" onSubmit={handleAddPin}>
+                    <input
+                      type="text"
+                      className="pinned-add-input"
+                      placeholder="Pin text..."
+                      value={pinInput}
+                      onChange={(e) => setPinInput(e.target.value)}
+                      autoFocus
+                      maxLength={200}
+                    />
+                    <button type="submit" className="btn-ghost btn-sm" disabled={!pinInput.trim()}>
+                      Pin
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      onClick={() => { setShowAddPin(false); setPinInput('') }}
+                    >
+                      ✕
+                    </button>
+                  </form>
+                ) : (
+                  <button className="btn-ghost btn-sm" onClick={() => setShowAddPin(true)}>+ Pin</button>
+                )
+              )}
+            </div>
+          )}
+          {pinnedNotes.length === 0 && isDM && (
+            showAddPin ? (
+              <div className="pinned-notes-banner">
+                <span className="pinned-notes-icon">📌</span>
+                <form className="pinned-add-form" onSubmit={handleAddPin}>
+                  <input
+                    type="text"
+                    className="pinned-add-input"
+                    placeholder="Pin text..."
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value)}
+                    autoFocus
+                    maxLength={200}
+                  />
+                  <button type="submit" className="btn-ghost btn-sm" disabled={!pinInput.trim()}>
+                    Pin
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost btn-sm"
+                    onClick={() => { setShowAddPin(false); setPinInput('') }}
+                  >
+                    ✕
+                  </button>
+                </form>
+              </div>
+            ) : null
+          )}
+          {/* World clock status bar */}
+          {worldTime && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', padding: '0.1rem 0.75rem', display: 'flex', gap: '1rem', borderBottom: '1px solid var(--color-border)' }}>
+              <span>⏰ Day {worldTime.day}</span>
+              <span>{worldTime.time_of_day}</span>
+              <span>{String(worldTime.hour).padStart(2,'0')}:{String(worldTime.minute).padStart(2,'0')}</span>
+              <span>{worldTime.weather}</span>
+            </div>
+          )}
+          {/* Ambient badge */}
+          {currentAmbient !== 'none' && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', padding: '0.25rem 0.5rem' }}>
+              🎵 {currentAmbient.charAt(0).toUpperCase() + currentAmbient.slice(1)}
+            </div>
+          )}
+          {/* Ready Check UI (DM) */}
+          {showReadyCheck && isDM && !isSpectator && (
+            <div style={{ padding: '0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, marginBottom: '0.5rem', margin: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.4rem' }}>
+                <input
+                  value={readyCheckMsg}
+                  onChange={e => setReadyCheckMsg(e.target.value)}
+                  style={{ flex: 1, fontSize: '0.8rem', padding: '0.3rem 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)' }}
+                />
+                <button onClick={() => { sendReadyCheck(readyCheckMsg); clearReadyState() }} style={{ fontSize: '0.8rem', padding: '0.3rem 0.6rem', background: 'var(--accent)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'var(--bg-primary)' }}>Send Ready Check</button>
+                <button onClick={() => setShowReadyCheck(false)} style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
+              </div>
+              {activePlayers.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                  {activePlayers.map(p => (
+                    <span key={p.player_id} style={{ marginRight: '0.5rem', fontSize: '0.75rem', color: readyState[p.player_id] ? 'var(--accent)' : 'var(--text-muted)' }}>
+                      {readyState[p.player_id] ? '✓' : '○'} {p.player_name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Ready Response UI (players) */}
+          {!isDM && !isSpectator && messages.some(m => m.role === 'system' && m.text.includes('Ready check')) && (
+            <div style={{ display: 'flex', gap: '0.5rem', padding: '0.5rem' }}>
+              <button onClick={() => sendReadyResponse(true)} style={{ background: 'var(--accent)', color: 'var(--bg-primary)', border: 'none', borderRadius: 4, padding: '0.3rem 0.8rem', cursor: 'pointer' }}>✅ Ready</button>
+              <button onClick={() => sendReadyResponse(false)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4, padding: '0.3rem 0.8rem', cursor: 'pointer', color: 'var(--text-primary)' }}>❌ Not Ready</button>
+            </div>
+          )}
+          {/* NPC Name Generator */}
+          {showNameGen && isDM && !isSpectator && (
+            <div style={{ padding: '0.75rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, marginBottom: '0.5rem', margin: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <input value={nameGenRace} onChange={e => setNameGenRace(e.target.value)} placeholder="Race (e.g. elf)" style={{ flex: 1, padding: '0.3rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: '0.85rem' }} />
+                <button onClick={async () => {
+                  if (!activeCampaign) return
+                  try {
+                    const res = await api.campaigns.generateNames(activeCampaign.id, { race: nameGenRace, count: 6 })
+                    setGeneratedNames(res.names)
+                  } catch {
+                    // ignore
+                  }
+                }} style={{ fontSize: '0.8rem', padding: '0.3rem 0.6rem', background: 'var(--accent)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'var(--bg-primary)' }}>Generate</button>
+                <button onClick={() => setShowNameGen(false)} style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem', background: 'none', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-muted)' }}>✕</button>
+              </div>
+              {generatedNames.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                  {generatedNames.map((n, i) => (
+                    <button key={i} onClick={() => { sendAction(`NPC: ${n}`) }} style={{ padding: '0.2rem 0.5rem', fontSize: '0.8rem', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', color: 'var(--text-primary)' }}>{n}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Scene Marker input */}
+          {showSceneInput && isDM && !isSpectator && (
+            <div style={{ display: 'flex', gap: '0.5rem', padding: '0.25rem 0.5rem', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
+              <input
+                value={sceneInput} onChange={e => setSceneInput(e.target.value)}
+                placeholder="Scene title…"
+                onKeyDown={e => { if (e.key === 'Enter' && sceneInput.trim()) { sendSceneMarker(sceneInput.trim()); setSceneInput(''); setShowSceneInput(false) } }}
+                style={{ flex: 1, padding: '0.3rem', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text)', fontSize: '0.85rem' }}
+                autoFocus
+              />
+              <button onClick={() => { if (sceneInput.trim()) { sendSceneMarker(sceneInput.trim()); setSceneInput(''); setShowSceneInput(false) } }} className="btn-ghost btn-sm">Insert</button>
+              <button onClick={() => setShowSceneInput(false)} className="btn-ghost btn-sm">✕</button>
+            </div>
+          )}
+          {/* Secret Roll panel */}
+          {showSecretRolls && isDM && !isSpectator && (
+            <div style={{ padding: '0.75rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, marginBottom: '0.5rem', margin: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                <strong style={{ fontSize: '0.85rem' }}>🎲 Secret Roll</strong>
+                <button onClick={() => setShowSecretRolls(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)' }}>✕</button>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input value={secretDice} onChange={e => setSecretDice(e.target.value)} placeholder="1d20" style={{ width: 70, padding: '0.25rem', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text)', fontSize: '0.8rem' }} />
+                <input value={secretReason} onChange={e => setSecretReason(e.target.value)} placeholder="Reason (e.g. Perception)" style={{ flex: 1, padding: '0.25rem', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text)', fontSize: '0.8rem' }} />
+                <button onClick={() => sendSecretRoll(secretDice, secretReason)} className="btn-ghost btn-sm">Roll</button>
+              </div>
+              {secretRolls.length > 0 && (
+                <div style={{ marginTop: '0.5rem', maxHeight: 120, overflow: 'auto' }}>
+                  {secretRolls.map(r => (
+                    <div key={r.id} style={{ fontSize: '0.75rem', color: 'var(--color-muted)', padding: '0.1rem 0' }}>
+                      🎲 {r.dice}{r.reason ? ` (${r.reason})` : ''}: [{r.values.join(', ')}] = <strong>{r.total}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <NarrativeLog />
-          <PlayerInput
-            onSendAction={sendAction}
-            onSendVoiceTranscript={sendVoiceTranscript}
-            onOpenDiceCamera={() => setShowDiceCamera(true)}
-            onOpenDiceRoller={() => setShowDiceRoller(true)}
-            connected={connected}
-          />
+          {/* PTT recording indicator */}
+          {recordingPlayers.size > 0 && (
+            <div style={{ display: 'flex', gap: '0.5rem', padding: '0.25rem 0.5rem', flexWrap: 'wrap' }}>
+              {Array.from(recordingPlayers).map(pid => {
+                const player = activePlayers.find(p => p.player_id === pid)
+                return (
+                  <span key={pid} style={{
+                    fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: 10,
+                    background: 'rgba(231, 76, 60, 0.2)', color: '#e74c3c',
+                    animation: 'pulse 1s infinite',
+                  }}>
+                    🎙 {player?.player_name ?? pid}
+                  </span>
+                )
+              })}
+            </div>
+          )}
+          {!isSpectator && (
+            <PlayerInput
+              onSendAction={(text) => {
+                if (sendingRef.current) return
+                sendingRef.current = true
+                try {
+                  sendAction(text)
+                } finally {
+                  setTimeout(() => { sendingRef.current = false }, 500)
+                }
+              }}
+              onSendVoiceTranscript={(transcript) => {
+                sendVoiceRecording(false)
+                sendVoiceTranscript(transcript)
+              }}
+              onOpenDiceCamera={() => setShowDiceCamera(true)}
+              onOpenDiceRoller={() => setShowDiceRoller(true)}
+              connected={connected}
+            />
+          )}
         </div>
+
+        {/* Right Panel: Party Panel */}
+        {showPartyPanel && (
+          <div className="party-outer-panel">
+            <PartyPanel isDM={isDM} onClose={() => setShowPartyPanel(false)} />
+          </div>
+        )}
+
+        {/* Right Panel: Dice Log */}
+        {showDiceLogPanel && (
+          <div className="dice-log-outer-panel">
+            <DiceLog onClose={() => setShowDiceLogPanel(false)} />
+          </div>
+        )}
+
+        {/* Right Panel: Session Notes */}
+        {showNotesPanel && (
+          <div className="notes-outer-panel">
+            <SessionNotes onClose={() => setShowNotesPanel(false)} />
+          </div>
+        )}
 
         {/* Right Panel: Dice Roller */}
         {showDiceRoller && (
@@ -305,7 +805,14 @@ export function SessionView() {
         {/* Right Panel: Dungeon Map */}
         {showMapPanel && (
           <div className="map-panel">
-            <DungeonMap onClose={() => setShowMapPanel(false)} />
+            <DungeonMap
+              onClose={() => setShowMapPanel(false)}
+              annotations={mapAnnotations}
+              isDM={isDM && !isSpectator}
+              onAnnotationsChange={(annotations) => {
+                if (activeCampaign) saveMapAnnotations(activeCampaign.id, annotations)
+              }}
+            />
           </div>
         )}
 
@@ -315,7 +822,54 @@ export function SessionView() {
             <CharacterSheet
               character={myCharacter}
               onUpdate={updateCharacter}
+              onSendAction={isSpectator ? undefined : sendAction}
+              onRollSkill={(skill, mod) => {
+                const sign = mod >= 0 ? '+' : ''
+                sendAction(`Rolling ${skill} check (${sign}${mod})`)
+              }}
             />
+            {myCharacter.spellbook && myCharacter.spellbook.some(s => s.prepared) && !isSpectator && (
+              <div style={{ borderTop: '1px solid var(--border)', overflow: 'hidden auto', flexShrink: 0 }}>
+                <SpellQuickCast
+                  character={myCharacter}
+                  onCast={(text) => sendAction(text)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Right Panel: World State Viewer (DM) */}
+        {isDM && !isSpectator && showWorldState && activeCampaign && (
+          <div className="dm-side-panel">
+            <WorldStateViewer
+              campaignId={Number(activeCampaign.id)}
+              isDM={isDM}
+            />
+          </div>
+        )}
+
+        {/* Right Panel: Trap/Puzzle/Shop Generator (DM) */}
+        {isDM && !isSpectator && showTrapGen && activeCampaign && (
+          <div className="dm-side-panel">
+            <TrapGenerator campaignId={Number(activeCampaign.id)} />
+          </div>
+        )}
+
+        {/* Right Panel: NPC Relationships (DM) */}
+        {isDM && !isSpectator && showNpcRelationships && activeCampaign && (
+          <div className="dm-side-panel">
+            <NPCRelationships
+              campaignId={Number(activeCampaign.id)}
+              isDM={isDM}
+            />
+          </div>
+        )}
+
+        {/* Right Panel: Personal Notes (players) */}
+        {!isDM && !isSpectator && showPersonalNotes && (
+          <div className="dm-side-panel">
+            <PersonalNotes />
           </div>
         )}
       </div>
@@ -329,8 +883,130 @@ export function SessionView() {
         />
       )}
 
+      {/* Encounter Builder overlay */}
+      {showEncounterBuilder && (
+        <div className="dm-overlay-panel">
+          <EncounterBuilder
+            onStartEncounter={(desc) => { sendAction(desc); setShowEncounterBuilder(false) }}
+            onClose={() => setShowEncounterBuilder(false)}
+          />
+        </div>
+      )}
+
+      {/* Dice Macros overlay */}
+      {showDiceMacros && (
+        <div className="dm-overlay-panel">
+          <DiceMacros
+            onRoll={(values, total, notation) => {
+              if (pendingRoll) {
+                sendManualRoll(pendingRoll.roll_request_id, values, total)
+              } else {
+                sendAction(`🎲 ${notation}: [${values.join(', ')}] = ${total}`)
+              }
+            }}
+            onClose={() => setShowDiceMacros(false)}
+          />
+        </div>
+      )}
+
+      {/* Ambient Sound overlay */}
+      {showAmbientPanel && (
+        <div className="dm-overlay-panel">
+          <AmbientSound
+            currentAmbient={currentAmbient}
+            onSelect={(sound) => {
+              setCurrentAmbient(sound)
+              sendAmbientUpdate(sound)
+            }}
+            onClose={() => setShowAmbientPanel(false)}
+          />
+        </div>
+      )}
+
+      {/* Active handout overlay */}
+      {activeHandout && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--color-surface)', border: '2px solid var(--color-accent)', borderRadius: 8, padding: '1.5rem', maxWidth: 480, width: '90%', maxHeight: '70vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <strong style={{ fontSize: '1.1rem' }}>📜 {activeHandout.title}</strong>
+              <button onClick={() => setActiveHandout(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', fontSize: '1.2rem' }}>✕</button>
+            </div>
+            {activeHandout.type === 'image'
+              ? <img src={activeHandout.content} alt={activeHandout.title} style={{ maxWidth: '100%', borderRadius: 4 }} />
+              : <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{activeHandout.content}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* World Clock panel */}
+      {showWorldClock && worldTime && (
+        <WorldClock
+          worldTime={worldTime}
+          isDM={!isSpectator}
+          onUpdate={(data) => { if (activeCampaign) saveWorldTime(activeCampaign.id, data) }}
+          onClose={() => setShowWorldClock(false)}
+        />
+      )}
+
+      {/* Handouts panel */}
+      {showHandouts && activeCampaign && (
+        <Handouts
+          campaignId={activeCampaign.id}
+          handouts={handouts}
+          isDM={!isSpectator}
+          onClose={() => setShowHandouts(false)}
+        />
+      )}
+
+      {/* Bestiary panel */}
+      {showBestiary && <Bestiary onClose={() => setShowBestiary(false)} />}
+
+      {/* OOC Chat */}
+      {showOOC && (
+        <OOCChat onSend={sendOOC} onClose={() => setShowOOC(false)} />
+      )}
+
+      {/* DM Notes */}
+      {showDMNotes && activeSession && (
+        <DMNotes sessionId={activeSession.id} onClose={() => setShowDMNotes(false)} />
+      )}
+
+      {/* Read Aloud */}
+      {showReadAloud && activeCampaign && (
+        <ReadAloud
+          campaignId={activeCampaign.id}
+          isDM={isDM && !isSpectator}
+          onRead={(text) => sendAction(`[Read Aloud] ${text}`)}
+          onClose={() => setShowReadAloud(false)}
+        />
+      )}
+
+      {/* Spell Reference */}
+      {showSpellRef && <SpellReference onClose={() => setShowSpellRef(false)} />}
+
+      {/* Magic Items panel */}
+      {showMagicItems && <MagicItems onClose={() => setShowMagicItems(false)} />}
+
+      {/* Equipment panel */}
+      {showEquipment && (
+        <Equipment
+          onAddToInventory={(item) => {
+            if (activeCampaign) {
+              const state = useGameStore.getState()
+              const { gold, items } = state.partyState
+              state.savePartyState(activeCampaign.id, { gold, items: [...items, item] })
+              addToast(`Added "${item}" to party inventory`, 'success')
+            }
+          }}
+          onClose={() => setShowEquipment(false)}
+        />
+      )}
+
       {/* DM Voice (hidden, auto-plays) */}
       <DMVoice />
+
+      {/* Toast notifications */}
+      <ToastProvider />
 
       <style>{`
         .session-view {
@@ -453,9 +1129,45 @@ export function SessionView() {
         .combat-toggle-btn.active,
         .npc-toggle-btn.active,
         .quest-toggle-btn.active,
-        .dice-toggle-btn.active {
+        .dice-toggle-btn.active,
+        .dice-log-toggle-btn.active,
+        .notes-toggle-btn.active,
+        .party-toggle-btn.active {
           border-color: var(--accent);
           color: var(--accent);
+        }
+
+        .spectator-badge {
+          font-size: var(--font-size-xs);
+          font-weight: 700;
+          color: var(--text-muted);
+          background: rgba(128, 128, 128, 0.15);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-full);
+          padding: 1px 6px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          flex-shrink: 0;
+        }
+
+        .dice-log-outer-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        .notes-outer-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
         }
 
         .combat-active-indicator {
@@ -563,6 +1275,100 @@ export function SessionView() {
           margin: var(--space-2) var(--space-4);
         }
 
+        .party-outer-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        /* Pinned notes banner */
+        .pinned-notes-banner {
+          display: flex;
+          align-items: flex-start;
+          gap: var(--space-2);
+          padding: var(--space-2) var(--space-4);
+          background: var(--bg-secondary);
+          border-bottom: 2px solid rgba(196, 130, 10, 0.4);
+          flex-shrink: 0;
+          flex-wrap: wrap;
+        }
+
+        .pinned-notes-icon {
+          font-size: var(--font-size-sm);
+          flex-shrink: 0;
+          margin-top: 2px;
+        }
+
+        .pinned-notes-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: var(--space-2);
+          flex: 1;
+        }
+
+        .pinned-note {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 2px var(--space-2);
+          background: rgba(196, 130, 10, 0.08);
+          border: 1px solid rgba(196, 130, 10, 0.3);
+          border-radius: var(--radius-full);
+          font-size: var(--font-size-xs);
+        }
+
+        .pinned-note-text {
+          color: var(--text-secondary);
+        }
+
+        .pinned-note-remove {
+          background: transparent;
+          border: none;
+          color: var(--text-muted);
+          cursor: pointer;
+          padding: 0;
+          font-size: 0.9rem;
+          line-height: 1;
+          opacity: 0.6;
+          text-transform: none;
+          letter-spacing: 0;
+          min-width: unset;
+        }
+
+        .pinned-note-remove:hover {
+          opacity: 1;
+          color: var(--accent-danger);
+          background: transparent;
+          border-color: transparent;
+        }
+
+        .pinned-add-form {
+          display: flex;
+          align-items: center;
+          gap: var(--space-1);
+          flex: 1;
+          min-width: 200px;
+        }
+
+        .pinned-add-input {
+          flex: 1;
+          font-size: var(--font-size-xs);
+          padding: 2px var(--space-2);
+          background: var(--bg-primary);
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
+          color: var(--text-primary);
+        }
+
+        .pinned-add-input:focus {
+          outline: none;
+          border-color: var(--accent);
+        }
+
         /* Main layout */
         .session-main {
           flex: 1;
@@ -594,7 +1400,10 @@ export function SessionView() {
           .map-panel,
           .combat-panel,
           .npc-panel,
-          .quest-panel {
+          .quest-panel,
+          .dice-log-outer-panel,
+          .notes-outer-panel,
+          .party-outer-panel {
             position: fixed;
             top: var(--header-height);
             right: 0;
@@ -641,6 +1450,44 @@ export function SessionView() {
         @media (max-width: 480px) {
           .session-campaign {
             display: none;
+          }
+        }
+
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+
+        .dm-overlay-panel {
+          position: fixed;
+          top: 60px;
+          right: var(--space-4);
+          z-index: 300;
+          box-shadow: 0 4px 24px var(--shadow-lg);
+          border-radius: var(--radius);
+          max-width: 360px;
+          width: 90vw;
+        }
+
+        .dm-side-panel {
+          width: var(--sidebar-width);
+          flex-shrink: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          border-left: 1px solid var(--border);
+          animation: slideIn 0.2s ease;
+        }
+
+        @media (max-width: 900px) {
+          .dm-side-panel {
+            position: fixed;
+            top: var(--header-height);
+            right: 0;
+            bottom: 0;
+            width: min(var(--sidebar-width), 100vw);
+            z-index: 200;
+            box-shadow: -4px 0 20px var(--shadow-lg);
           }
         }
       `}</style>

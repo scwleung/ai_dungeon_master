@@ -6,8 +6,18 @@ database.  Persistent data (messages, character HP/inventory, world state)
 is written to the DB through the router/WebSocket handler.
 
 Classes:
-  Combatant         — A single participant in a combat encounter (name, HP,
-                      initiative, conditions, optional character_id).
+  Combatant         — A single participant in a combat encounter.
+                      Core fields: name, initiative, hp_current, hp_max,
+                      is_player, character_id, conditions (list, str or dict).
+                      Extended fields added for 5e mechanics:
+                        legendary_actions_remaining (int) — current legendary
+                          action uses available this round; toggled via the
+                          ``combat_legendary_action`` WebSocket message.
+                        legendary_actions_max (int) — maximum legendary actions
+                          per round (0 for non-legendary creatures).
+                        reaction_used (bool) — True when the combatant has spent
+                          their reaction this round; set via ``combat_use_reaction``
+                          and cleared by ``combat_reset_reactions`` WS messages.
   CombatState       — Full combat snapshot: active flag, round number, turn
                       index, and ordered combatant list.  advance() cycles
                       turns and increments the round counter automatically.
@@ -35,7 +45,10 @@ class Combatant:
     hp_max: int
     is_player: bool = False
     character_id: Optional[str] = None
-    conditions: list[str] = field(default_factory=list)
+    conditions: list = field(default_factory=list)
+    legendary_actions_remaining: int = 0
+    legendary_actions_max: int = 0
+    reaction_used: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -46,6 +59,9 @@ class Combatant:
             "is_player": self.is_player,
             "character_id": self.character_id,
             "conditions": list(self.conditions),
+            "legendary_actions_remaining": self.legendary_actions_remaining,
+            "legendary_actions_max": self.legendary_actions_max,
+            "reaction_used": self.reaction_used,
         }
 
 
@@ -61,12 +77,31 @@ class CombatState:
             return None
         return self.combatants[self.turn_index % len(self.combatants)]
 
+    def _tick_conditions(self) -> None:
+        """Decrement duration on timed conditions; remove those that reach 0."""
+        for combatant in self.combatants:
+            new_conditions = []
+            for cond in combatant.conditions:
+                if isinstance(cond, dict):
+                    duration = cond.get("duration")
+                    if duration is None:
+                        new_conditions.append(cond)  # permanent
+                    elif duration > 0:
+                        new_duration = duration - 1
+                        if new_duration > 0:
+                            new_conditions.append({**cond, "duration": new_duration})
+                        # new_duration == 0 → expires (lasted duration ticks)
+                else:
+                    new_conditions.append(cond)  # plain string, no duration
+            combatant.conditions = new_conditions
+
     def advance(self) -> None:
         if not self.combatants:
             return
         self.turn_index = (self.turn_index + 1) % len(self.combatants)
         if self.turn_index == 0:
             self.round += 1
+        self._tick_conditions()
 
     def to_dict(self) -> dict:
         return {
@@ -227,6 +262,8 @@ class GameStateManager:
                     is_player=bool(c.get("is_player", False)),
                     character_id=c.get("character_id"),
                     conditions=list(c.get("conditions", [])),
+                    legendary_actions_max=c.get("legendary_actions_max", 0),
+                    legendary_actions_remaining=c.get("legendary_actions_max", 0),
                 )
                 for c in combatants_data
             ],

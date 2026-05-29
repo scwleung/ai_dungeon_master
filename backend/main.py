@@ -42,31 +42,43 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import random
 import uuid
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+import time as _time
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from backend.database import AsyncSessionLocal, get_db, init_db
+from sqlalchemy import text
+
+from backend.database import AsyncSessionLocal, init_db
 from backend.models.campaign import Campaign
 from backend.models.campaign import Session as GameSession
 from backend.models.character import Character
 from backend.models.roll_result import roll_dice, RollResult
 from backend.routers import campaigns, characters, tts as tts_router
 from backend.routers import combat as combat_router
+from backend.services.character_service import update_character_in_db
 from backend.services.dm_brain import DungeonMaster
 from backend.services.game_state import PendingRoll, game_state_manager
+from backend.startup import run_migrations
 from backend.ws.session_hub import session_hub
 
 load_dotenv()
+
+_rl_store: dict[str, deque] = defaultdict(deque)
+_RL_LIMIT = 60
+_RL_WINDOW = 60.0
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -75,8 +87,18 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    required_vars = ["ANTHROPIC_API_KEY"]
+    missing = [v for v in required_vars if not os.getenv(v)]
+    if missing:
+        raise RuntimeError(
+            f"Missing required environment variables: {', '.join(missing)}. "
+            "Copy .env.example to .env and fill in the values."
+        )
     await init_db()
+    async with AsyncSessionLocal() as db:
+        await run_migrations(db)
     yield
+    await session_hub.close_all()
 
 
 app = FastAPI(
@@ -84,6 +106,30 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+_RL_EXEMPT = {"127.0.0.1", "::1", "testclient", "localhost"}
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    if not request.url.path.startswith("/api"):
+        return await call_next(request)
+    ip = (request.client.host if request.client else "unknown")
+    if ip in _RL_EXEMPT:
+        return await call_next(request)
+    now = _time.monotonic()
+    bucket = _rl_store[ip]
+    while bucket and bucket[0] < now - _RL_WINDOW:
+        bucket.popleft()
+    if not bucket:
+        del _rl_store[ip]
+    if len(bucket) >= _RL_LIMIT:
+        return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Please wait before retrying."})
+    bucket.append(now)
+    _rl_store[ip] = bucket
+    return await call_next(request)
+
 
 # ---------------------------------------------------------------------------
 # CORS
@@ -99,6 +145,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+@app.get("/health", tags=["meta"])
+async def health_check():
+    """Lightweight liveness probe for load balancers and Docker health checks."""
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception:
+        db_status = "error"
+    return {"status": "ok" if db_status == "ok" else "degraded", "db": db_status}
+
 
 # ---------------------------------------------------------------------------
 # REST routers
@@ -348,80 +410,6 @@ async def _load_campaign_and_characters(
         return campaign, characters
 
 
-async def _update_character_in_db(character_id: str, tool_input: dict) -> str:
-    """
-    Apply an update_character tool call to the database.
-
-    Returns a human-readable summary of changes made.
-    """
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(Character).where(Character.id == character_id)
-        )
-        char = result.scalar_one_or_none()
-        if char is None:
-            return f"Character {character_id!r} not found."
-
-        changes: list[str] = []
-
-        # HP delta
-        hp_delta = tool_input.get("hp_delta")
-        if hp_delta is not None:
-            old_hp = char.hp_current
-            char.hp_current = max(0, min(char.hp_max, char.hp_current + hp_delta))
-            direction = "healed" if hp_delta > 0 else "took"
-            changes.append(
-                f"{char.name} {direction} {abs(hp_delta)} HP "
-                f"({old_hp} → {char.hp_current}/{char.hp_max})"
-            )
-
-        # Inventory changes
-        try:
-            inventory: list[str] = json.loads(char.inventory)
-        except (json.JSONDecodeError, TypeError):
-            inventory = []
-
-        for item in tool_input.get("add_items", []):
-            if item not in inventory:
-                inventory.append(item)
-                changes.append(f"Added '{item}' to {char.name}'s inventory")
-
-        for item in tool_input.get("remove_items", []):
-            if item in inventory:
-                inventory.remove(item)
-                changes.append(f"Removed '{item}' from {char.name}'s inventory")
-
-        char.inventory = json.dumps(inventory)
-
-        # Condition changes
-        try:
-            conditions: list[str] = json.loads(char.conditions)
-        except (json.JSONDecodeError, TypeError):
-            conditions = []
-
-        for cond in tool_input.get("add_conditions", []):
-            if cond not in conditions:
-                conditions.append(cond)
-                changes.append(f"{char.name} gained condition: {cond}")
-
-        for cond in tool_input.get("remove_conditions", []):
-            if cond in conditions:
-                conditions.remove(cond)
-                changes.append(f"{char.name} lost condition: {cond}")
-
-        char.conditions = json.dumps(conditions)
-
-        # Notes
-        notes_append = tool_input.get("notes_append")
-        if notes_append:
-            char.notes = (char.notes or "") + "\n" + notes_append
-            changes.append(f"Added note for {char.name}")
-
-        await db.commit()
-
-        return "; ".join(changes) if changes else f"No changes made to {char.name}."
-
-
 async def _reveal_area_in_db(campaign_id: str, room_id: str) -> tuple[str, list[str]]:
     """Add room_id to explored_rooms in campaign.map_data and return (message, explored_list)."""
     async with AsyncSessionLocal() as db:
@@ -519,6 +507,27 @@ async def _upsert_quest_in_db(campaign_id: str, quest_data: dict) -> tuple[str, 
         return f"Quest '{quest['name']}' {action}.", quests
 
 
+async def _update_party_state_in_db(campaign_id: str, gold_delta: int, add_items: list, remove_items: list):
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+        campaign = result.scalar_one_or_none()
+        if not campaign:
+            return None
+        state = json.loads(campaign.party_state) if campaign.party_state else {"gold": 0, "items": []}
+        state["gold"] = max(0, state["gold"] + gold_delta)
+        items = list(state.get("items", []))
+        for item in add_items:
+            items.append(item)
+        for item in remove_items:
+            if item in items:
+                items.remove(item)
+        state["items"] = items
+        campaign.party_state = json.dumps(state)
+        db.add(campaign)
+        await db.commit()
+        return state
+
+
 async def _update_world_state_in_db(campaign_id: str, updates: dict) -> str:
     """Apply world state key-value updates to the campaign in the DB."""
     async with AsyncSessionLocal() as db:
@@ -542,6 +551,16 @@ async def _update_world_state_in_db(campaign_id: str, updates: dict) -> str:
     return f"World state updated: {keys_updated}"
 
 
+async def _ws_keepalive(ws: WebSocket, interval: int = 30) -> None:
+    """Send periodic application-level ping to keep WebSocket proxies from timing out."""
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            await ws.send_json({"type": "ping"})
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # WebSocket endpoint
 # ---------------------------------------------------------------------------
@@ -561,13 +580,15 @@ async def websocket_endpoint(
     Query parameters:
         player_id:   Unique identifier for this player.
         player_name: Display name shown to other players.
-        access_code: Campaign access code; connection is closed with 4403
-                     if the code does not match the session's campaign.
+        access_code: Campaign access code; omitting it or passing empty string
+                     grants read-only spectator access.  An incorrect non-empty
+                     code is rejected with close code 4403.
     """
     await session_hub.connect(ws, session_id, player_id)
 
     # Look up which campaign this session belongs to and verify access code
     campaign_id: Optional[str] = None
+    is_spectator_conn = False
     async with AsyncSessionLocal() as db:
         session_result = await db.execute(
             select(GameSession).where(GameSession.id == session_id)
@@ -575,15 +596,24 @@ async def websocket_endpoint(
         db_session = session_result.scalar_one_or_none()
         if db_session is not None:
             campaign_id = db_session.campaign_id
-            # Verify access code against the campaign when the session exists
             campaign_result = await db.execute(
                 select(Campaign).where(Campaign.id == campaign_id)
             )
             db_campaign = campaign_result.scalar_one_or_none()
-            if db_campaign is not None and db_campaign.access_code != access_code:
-                session_hub.disconnect(ws)
-                await ws.close(code=4403, reason="Invalid access code")
-                return
+            if db_campaign is not None:
+                campaign_code = db_campaign.access_code or ""
+                if campaign_code and not access_code:
+                    is_spectator_conn = True
+                elif campaign_code and access_code != campaign_code:
+                    session_hub.disconnect(ws)
+                    await ws.close(code=4403, reason="Invalid access code")
+                    return
+                elif not campaign_code and access_code:
+                    # Campaign has no code; any provided code is accepted
+                    pass
+
+    if is_spectator_conn:
+        session_hub.mark_spectator(ws)
 
     # Per-connection queue for awaiting player roll results
     # key: roll_request_id, value: asyncio.Queue that receives the result dict
@@ -656,6 +686,13 @@ async def websocket_endpoint(
             if dc is not None:
                 request_payload["dc"] = dc
 
+            advantage = tool_input.get("advantage")
+            disadvantage = tool_input.get("disadvantage")
+            if advantage:
+                request_payload["advantage"] = True
+            if disadvantage:
+                request_payload["disadvantage"] = True
+
             await session_hub.send_to_player(session_id, target_player_id, request_payload)
             # Also broadcast so all players see the request
             await session_hub.broadcast(session_id, request_payload)
@@ -691,7 +728,7 @@ async def websocket_endpoint(
             if not character_id:
                 return "Missing character_id for update_character tool."
 
-            summary = await _update_character_in_db(character_id, tool_input)
+            summary = await update_character_in_db(character_id, tool_input)
 
             # Build a state_update payload to broadcast to all players
             async with AsyncSessionLocal() as db:
@@ -766,6 +803,19 @@ async def websocket_endpoint(
                 await session_hub.broadcast(session_id, {"type": "quest_update", "quests": quests})
             return message
 
+        elif tool_name == "update_party_state":
+            if campaign_id is None:
+                return "No campaign associated with this session."
+            state = await _update_party_state_in_db(
+                campaign_id=campaign_id,
+                gold_delta=tool_input.get("gold_delta", 0),
+                add_items=tool_input.get("add_items", []),
+                remove_items=tool_input.get("remove_items", []),
+            )
+            if state:
+                await session_hub.broadcast(session_id, {"type": "party_update", "gold": state["gold"], "items": state["items"]})
+            return f"Party state updated: gold={state['gold'] if state else 'unknown'}"
+
         elif tool_name == "generate_scene_image":
             description = tool_input.get("description", "")
             if not description:
@@ -784,12 +834,26 @@ async def websocket_endpoint(
     # Main message loop
     # ----------------------------------------------------------------
 
+    _ws_msg_times: deque = deque()
+    WS_RATE_LIMIT = 30  # messages per 10-second window
+    WS_RATE_WINDOW = 10.0
+
+    keepalive_task = asyncio.create_task(_ws_keepalive(ws))
     try:
         while True:
             try:
                 raw = await ws.receive_text()
             except WebSocketDisconnect:
                 break
+
+            # Per-connection rate limiting
+            now = _time.monotonic()
+            while _ws_msg_times and now - _ws_msg_times[0] > WS_RATE_WINDOW:
+                _ws_msg_times.popleft()
+            if len(_ws_msg_times) >= WS_RATE_LIMIT:
+                await session_hub.send_to_socket(ws, {"type": "error", "message": "Message rate limit exceeded. Please slow down."})
+                continue
+            _ws_msg_times.append(now)
 
             try:
                 data = json.loads(raw)
@@ -804,6 +868,11 @@ async def websocket_endpoint(
             # ------------------------------------------------------------
             # join_session
             # ------------------------------------------------------------
+            if session_hub.is_spectator(ws) and msg_type in (
+                "player_action", "voice_transcript", "dice_image", "manual_roll", "dice_result"
+            ):
+                continue  # spectators cannot take actions
+
             if msg_type == "join_session":
                 incoming_player_name = data.get("player_name", player_name)
                 game_state_manager.add_player(session_id, player_id, incoming_player_name)
@@ -815,6 +884,7 @@ async def websocket_endpoint(
                         "session_id": session_id,
                         "player_id": player_id,
                         "player_name": incoming_player_name,
+                        "is_spectator": is_spectator_conn,
                     },
                 )
                 await session_hub.broadcast(
@@ -826,6 +896,24 @@ async def websocket_endpoint(
                     },
                     exclude_ws=ws,
                 )
+
+                # Check if this is a fresh session with a prior session summary (recap)
+                async with AsyncSessionLocal() as recap_db:
+                    sess_result = await recap_db.execute(
+                        select(GameSession).where(GameSession.id == session_id)
+                    )
+                    sess_obj = sess_result.scalar_one_or_none()
+                    if sess_obj:
+                        try:
+                            existing_msgs = json.loads(sess_obj.messages or "[]")
+                        except Exception:
+                            existing_msgs = []
+                        # Fresh session (no messages yet) and has a prior session summary
+                        if not existing_msgs and sess_obj.session_summary and not is_spectator_conn:
+                            await session_hub.send_to_socket(ws, {
+                                "type": "system",
+                                "text": f"📜 Previously in your adventure: {sess_obj.session_summary}",
+                            })
 
             # ------------------------------------------------------------
             # player_action or voice_transcript → run DM brain
@@ -1027,6 +1115,134 @@ async def websocket_endpoint(
                         }
                     )
 
+            elif msg_type == "voice_recording":
+                # Relay recording state to all other clients in the room
+                if not is_spectator_conn:
+                    await session_hub.broadcast(
+                        session_id,
+                        {
+                            "type": "voice_recording",
+                            "player_id": data.get("player_id", player_id),
+                            "active": bool(data.get("active", False)),
+                        },
+                        exclude_ws=ws,
+                    )
+
+            elif msg_type == "ambient_update":
+                # DM broadcasts ambient sound selection to all clients
+                if not is_spectator_conn:
+                    await session_hub.broadcast(
+                        session_id,
+                        {
+                            "type": "ambient_update",
+                            "sound": data.get("sound", "none"),
+                        },
+                    )
+
+            elif msg_type == "ooc_message":
+                if not is_spectator_conn:
+                    await session_hub.broadcast(
+                        session_id,
+                        {
+                            "type": "ooc_broadcast",
+                            "player_id": data.get("player_id", player_id),
+                            "player_name": data.get("player_name", ""),
+                            "text": data.get("text", ""),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
+
+            elif msg_type == "ready_check":
+                if not is_spectator_conn:
+                    await session_hub.broadcast(
+                        session_id,
+                        {
+                            "type": "ready_check",
+                            "message": data.get("message", "Are you ready?"),
+                            "from_player_id": player_id,
+                        },
+                    )
+
+            elif msg_type == "ready_response":
+                await session_hub.broadcast(
+                    session_id,
+                    {
+                        "type": "ready_response",
+                        "player_id": data.get("player_id", player_id),
+                        "player_name": data.get("player_name", ""),
+                        "ready": bool(data.get("ready", False)),
+                    },
+                )
+
+            elif msg_type == "pong":
+                pass  # keepalive response; no action needed
+
+            elif msg_type == "dm_secret_roll":
+                # DM-only: roll dice server-side, result sent only to the requesting socket
+                if not is_spectator_conn:
+                    import re as _re
+                    dice_str = data.get("dice", "1d20")
+                    reason = data.get("reason", "")
+                    match = _re.match(r"^(\d+)d(\d+)([+-]\d+)?$", dice_str.lower().strip())
+                    if match:
+                        count = int(match.group(1))
+                        sides = int(match.group(2))
+                        mod = int(match.group(3) or 0)
+                        values = [random.randint(1, sides) for _ in range(min(count, 20))]
+                        total = sum(values) + mod
+                    else:
+                        values = [random.randint(1, 20)]
+                        total = values[0]
+                        mod = 0
+                    await session_hub.send_to_socket(ws, {
+                        "type": "secret_roll_result",
+                        "dice": dice_str,
+                        "values": values,
+                        "total": total,
+                        "modifier": mod,
+                        "reason": reason,
+                    })
+
+            elif msg_type == "scene_marker":
+                # DM inserts a named scene break into the narrative log
+                if not is_spectator_conn:
+                    title = data.get("title", "New Scene")
+                    marker_text = f"🎬 SCENE: {title}"
+                    await session_hub.broadcast(session_id, {
+                        "type": "scene_marker",
+                        "title": title,
+                    })
+                    await _save_message_to_db(session_id, "system", marker_text)
+
+            elif msg_type == "combat_use_reaction":
+                c_name = data.get("name")
+                state = game_state_manager.get_combat(session_id)
+                if state and state.active:
+                    for c in state.combatants:
+                        if c.name == c_name:
+                            c.reaction_used = True
+                    await session_hub.broadcast(session_id, {**state.to_dict(), "type": "combat_update"})
+
+            elif msg_type == "combat_reset_reactions":
+                state = game_state_manager.get_combat(session_id)
+                if state and state.active:
+                    for c in state.combatants:
+                        c.reaction_used = False
+                    await session_hub.broadcast(session_id, {**state.to_dict(), "type": "combat_update"})
+
+            elif msg_type == "combat_legendary_action":
+                c_name = data.get("name")
+                delta = int(data.get("delta", -1))
+                state = game_state_manager.get_combat(session_id)
+                if state and state.active:
+                    for c in state.combatants:
+                        if c.name == c_name:
+                            c.legendary_actions_remaining = max(
+                                0,
+                                min(c.legendary_actions_max, c.legendary_actions_remaining + delta),
+                            )
+                    await session_hub.broadcast(session_id, {**state.to_dict(), "type": "combat_update"})
+
             else:
                 # Unknown message type — silently ignore to keep the connection alive
                 pass
@@ -1042,6 +1258,7 @@ async def websocket_endpoint(
         except Exception:
             pass
     finally:
+        keepalive_task.cancel()
         info = session_hub.disconnect(ws)
         if info:
             disconnected_session_id, disconnected_player_id = info

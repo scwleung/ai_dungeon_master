@@ -1,4 +1,4 @@
-import type { Campaign, Character, CharacterUpdate, MapData, NPC, Quest, Session } from '../types'
+import type { Campaign, Character, CharacterUpdate, Handout, MapAnnotation, MapData, NPC, Quest, Session, TimelineEntry, WorldTime } from '../types'
 
 const BASE = ''
 
@@ -76,6 +76,60 @@ export const api = {
       request<{ data: Campaign }>('POST', '/api/campaigns', data),
     /** Permanently delete a campaign by ID. */
     delete: (id: string) => request<void>('DELETE', `/api/campaigns/${id}`),
+    /** Export a full campaign bundle as JSON (requires access code). */
+    export: (id: string) => request<unknown>('GET', `/api/campaigns/${id}/export`),
+    /** Import a campaign bundle, creating a new campaign with a fresh access code. */
+    import: (payload: unknown) => request<{ id: string; name: string; ruleset: string; description: string; access_code: string; created_at: string }>('POST', '/api/campaigns/import', payload),
+    /** Generate a new access code for the campaign (requires access code). */
+    rotateAccessCode: (id: string) => request<{ campaign_id: string; access_code: string }>('POST', `/api/campaigns/${id}/rotate-access-code`),
+    getWorldTime: (id: string) =>
+      request<{ campaign_id: string; world_time: WorldTime }>('GET', `/api/campaigns/${id}/world-time`),
+    updateWorldTime: (id: string, data: Partial<WorldTime>) =>
+      request<{ campaign_id: string; world_time: WorldTime }>('PUT', `/api/campaigns/${id}/world-time`, data),
+    getHandouts: (id: string) =>
+      request<{ campaign_id: string; handouts: Handout[] }>('GET', `/api/campaigns/${id}/handouts`),
+    createHandout: (id: string, data: { title: string; content: string; type?: string }) =>
+      request<{ campaign_id: string; handout: Handout }>('POST', `/api/campaigns/${id}/handouts`, data),
+    deleteHandout: (campaignId: string, handoutId: string) =>
+      request<void>('DELETE', `/api/campaigns/${campaignId}/handouts/${handoutId}`),
+    getTimeline: (id: string) =>
+      request<{ campaign_id: string; timeline: TimelineEntry[] }>('GET', `/api/campaigns/${id}/timeline`),
+    addTimelineEntry: (id: string, data: { description: string; session_tag?: string }) =>
+      request<{ campaign_id: string; entry: TimelineEntry }>('POST', `/api/campaigns/${id}/timeline`, data),
+    deleteTimelineEntry: (campaignId: string, entryId: string) =>
+      request<void>('DELETE', `/api/campaigns/${campaignId}/timeline/${entryId}`),
+    generateLoot: (id: string, data: { cr: number; environment: string; count?: number }) =>
+      request<{ campaign_id: string; items: string[] }>('POST', `/api/campaigns/${id}/loot`, data),
+    getDMNotes: (sessionId: string) =>
+      request<{ session_id: string; dm_notes: string }>('GET', `/api/campaigns/sessions/${sessionId}/dm-notes`),
+    saveDMNotes: (sessionId: string, dm_notes: string) =>
+      request<{ session_id: string; dm_notes: string }>('PUT', `/api/campaigns/sessions/${sessionId}/dm-notes`, { dm_notes }),
+    getReadalouds: (campaignId: string) =>
+      request<{ campaign_id: string; readalouds: Array<{ id: string; title: string; content: string; created_at: string }> }>('GET', `/api/campaigns/${campaignId}/readalouds`),
+    createReadaloud: (campaignId: string, data: { title: string; content: string }) =>
+      request<{ campaign_id: string; readaloud: { id: string; title: string; content: string; created_at: string } }>('POST', `/api/campaigns/${campaignId}/readalouds`, data),
+    deleteReadaloud: (campaignId: string, id: string) =>
+      request<void>('DELETE', `/api/campaigns/${campaignId}/readalouds/${id}`),
+    generateNames: (campaignId: string, data: { race: string; count?: number }) =>
+      request<{ campaign_id: string; names: string[] }>('POST', `/api/campaigns/${campaignId}/generate-names`, data),
+    getTables: (campaignId: number) =>
+      request<unknown>('GET', `/campaigns/${campaignId}/tables`),
+    createTable: (campaignId: number, table: { name: string; dice: string; entries: string[] }) =>
+      request<unknown>('POST', `/campaigns/${campaignId}/tables`, table),
+    rollTable: (campaignId: number, tableId: string) =>
+      request<unknown>('POST', `/campaigns/${campaignId}/tables/${tableId}/roll`),
+    deleteTable: (campaignId: number, tableId: string) =>
+      request<unknown>('DELETE', `/campaigns/${campaignId}/tables/${tableId}`),
+    getWorldState: (id: number) =>
+      request<Record<string, unknown>>('GET', `/api/campaigns/${id}/world-state`),
+    updateWorldState: (id: number, state: Record<string, unknown>) =>
+      request<Record<string, unknown>>('PUT', `/api/campaigns/${id}/world-state`, state),
+    generateTrap: (id: number, body: { cr: number; location: string }) =>
+      request<unknown>('POST', `/api/campaigns/${id}/trap`, body),
+    generatePuzzle: (id: number, body: { difficulty: string; theme: string }) =>
+      request<unknown>('POST', `/api/campaigns/${id}/puzzle`, body),
+    generateShop: (id: number, body: { settlement_size: string; shop_type: string }) =>
+      request<unknown>('POST', `/api/campaigns/${id}/shop`, body),
   },
 
   /** Session lifecycle operations scoped to a campaign. */
@@ -89,6 +143,19 @@ export const api = {
     /** Mark a session as ended and return the updated record. */
     end: (sessionId: string) =>
       request<{ data: Session }>('PUT', `/api/campaigns/sessions/${sessionId}/end`),
+    /** Fetch the collaborative notes for a session. */
+    getNotes: (sessionId: string) =>
+      fetch(`/api/campaigns/sessions/${sessionId}/notes`).then((r) => r.json()) as Promise<{ session_id: string; notes: string }>,
+    /** Persist updated collaborative notes for a session. */
+    updateNotes: (sessionId: string, notes: string) =>
+      fetch(`/api/campaigns/sessions/${sessionId}/notes`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes }),
+      }).then((r) => r.json()) as Promise<{ session_id: string; notes: string }>,
+    /** Generate a recap for a session. */
+    generateRecap: (sessionId: number) =>
+      request<unknown>('POST', `/sessions/${sessionId}/recap`),
   },
 
   /** Character CRUD operations scoped to a campaign. */
@@ -104,6 +171,10 @@ export const api = {
       request<{ data: Character }>('PUT', `/api/characters/${id}`, data),
     /** Permanently delete a character by ID. */
     delete: (id: string) => request<void>('DELETE', `/api/characters/${id}`),
+    getAuditLog: (characterId: string) =>
+      request<{ character_id: string; audit_log: Array<{ timestamp: string; change: string }> }>('GET', `/api/characters/${characterId}/audit-log`),
+    exportCharacter: (id: string) =>
+      request<Character>('GET', `/api/characters/${id}`),
   },
 
   /** Dungeon map operations. */
@@ -114,6 +185,10 @@ export const api = {
     /** Force-regenerate the dungeon map (requires access code). */
     generate: (campaignId: string) =>
       request<{ campaign_id: string; map_data: MapData }>('POST', `/api/campaigns/${campaignId}/map/generate`),
+    getAnnotations: (campaignId: string) =>
+      request<{ campaign_id: string; annotations: MapAnnotation[] }>('GET', `/api/campaigns/${campaignId}/map/annotations`),
+    updateAnnotations: (campaignId: string, annotations: MapAnnotation[]) =>
+      request<{ campaign_id: string; annotations: MapAnnotation[] }>('PUT', `/api/campaigns/${campaignId}/map/annotations`, { annotations }),
   },
 
   /** NPC registry operations. */
@@ -128,6 +203,26 @@ export const api = {
     /** Fetch all quests for a campaign. */
     list: (campaignId: string) =>
       request<{ campaign_id: string; quests: Quest[] }>('GET', `/api/campaigns/${campaignId}/quests`),
+  },
+
+  /** Party state (shared gold + items). */
+  party: {
+    get: (campaignId: string) =>
+      request<{ campaign_id: string; gold: number; items: string[] }>('GET', `/api/campaigns/${campaignId}/party`),
+    update: (campaignId: string, state: { gold: number; items: string[] }, accessCode: string) =>
+      fetch(`/api/campaigns/${campaignId}/party`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Access-Code': accessCode },
+        body: JSON.stringify(state),
+      }).then((r) => r.json()) as Promise<{ campaign_id: string; gold: number; items: string[] }>,
+  },
+
+  /** Session pin operations. */
+  pins: {
+    get: (sessionId: string) =>
+      request<{ session_id: string; pins: Array<{ id: string; text: string }> }>('GET', `/api/campaigns/sessions/${sessionId}/pins`),
+    update: (sessionId: string, pins: Array<{ id: string; text: string }>) =>
+      request<{ session_id: string; pins: Array<{ id: string; text: string }> }>('PUT', `/api/campaigns/sessions/${sessionId}/pins`, { pins }),
   },
 
   /** Combat tracker REST controls. */
@@ -146,6 +241,10 @@ export const api = {
     /** Remove a combatant from the active encounter by name. */
     removeCombatant: (sessionId: string, name: string) =>
       request<void>('DELETE', `/api/sessions/${sessionId}/combat/combatants/${encodeURIComponent(name)}`),
+    rollInitiative: (sessionId: string) =>
+      request<void>('POST', `/api/sessions/${sessionId}/combat/roll-initiative`),
+    updateCombatantHP: (sessionId: string, combatantName: string, delta: number) =>
+      request<void>('PATCH', `/api/sessions/${sessionId}/combat/combatants/${encodeURIComponent(combatantName)}/hp`, { delta }),
   },
 
   /** Text-to-speech operations. */

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -112,9 +112,10 @@ async def create_character(
 
 @router.get("/characters/{character_id}", response_model=CharacterResponse)
 async def get_character(
-    character_id: str, db: AsyncSession = Depends(get_db)
+    character_id: str, response: Response, db: AsyncSession = Depends(get_db)
 ):
     """Return a single character by ID."""
+    response.headers["Cache-Control"] = "private, max-age=5"
     result = await db.execute(
         select(Character).where(Character.id == character_id)
     )
@@ -151,12 +152,33 @@ async def update_character(
 
     update_data = payload.model_dump(exclude_unset=True)
 
+    _json_list_fields = (
+        "stats", "inventory", "conditions", "spell_slots", "resources",
+        "currency", "spellbook", "languages", "tool_proficiencies", "features",
+    )
+
+    def _safe_json(raw, default):
+        if isinstance(raw, str):
+            try:
+                return json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return default
+        return raw if raw is not None else default
+
     for field_name, value in update_data.items():
-        if field_name in ("stats", "inventory", "conditions") and not isinstance(
-            value, str
-        ):
+        if field_name == "feature_use":
+            # Special handling: decrement/increment uses_remaining on a feature
+            feature_id = value.get("feature_id")
+            delta = int(value.get("delta", -1))
+            feats = _safe_json(char.features, [])
+            for f in feats:
+                if f.get("id") == feature_id:
+                    new_uses = max(0, f.get("uses_remaining", 0) + delta)
+                    f["uses_remaining"] = new_uses
+            char.features = json.dumps(feats)
+        elif field_name in _json_list_fields and not isinstance(value, str):
             # Serialize Python objects back to JSON strings for storage
-            setattr(char, field_name, json.dumps(value))
+            setattr(char, field_name, json.dumps(value) if value is not None else None)
         else:
             setattr(char, field_name, value)
 
@@ -182,3 +204,17 @@ async def delete_character(
         )
     await db.delete(char)
     await db.flush()
+
+
+@router.get("/characters/{character_id}/audit-log")
+async def get_character_audit_log(character_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the audit log for a character."""
+    result = await db.execute(select(Character).where(Character.id == character_id))
+    char = result.scalar_one_or_none()
+    if char is None:
+        raise HTTPException(status_code=404, detail=f"Character {character_id!r} not found")
+    try:
+        audit = json.loads(char.audit_log or "[]")
+    except (json.JSONDecodeError, TypeError):
+        audit = []
+    return {"character_id": character_id, "audit_log": audit}

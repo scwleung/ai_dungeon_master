@@ -18,6 +18,7 @@ export function resetStore() {
       theme: 'fantasy',
       playerId: 'test-player-id',
       playerName: 'Test Player',
+      muteSFX: false,
     },
   })
 }

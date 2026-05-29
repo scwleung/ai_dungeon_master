@@ -1,5 +1,4 @@
 """Full HTTP integration tests for character endpoints."""
-import pytest
 from httpx import AsyncClient
 
 

@@ -1,9 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense, useState } from 'react'
 import { useGameStore } from './store/gameStore'
 import { Header } from './components/Header'
-import { CampaignList } from './components/CampaignList'
-import { CampaignDetail } from './components/CampaignDetail'
-import { SessionView } from './components/SessionView'
+import ErrorBoundary from './components/ErrorBoundary'
+import ToastProvider from './components/ToastProvider'
+
+const CampaignList = lazy(() => import('./components/CampaignList').then(m => ({ default: m.CampaignList })))
+const CampaignDetail = lazy(() => import('./components/CampaignDetail').then(m => ({ default: m.CampaignDetail })))
+const SessionView = lazy(() => import('./components/SessionView').then(m => ({ default: m.SessionView })))
 
 import './themes/base.css'
 import './themes/fantasy.css'
@@ -11,7 +14,8 @@ import './themes/hud.css'
 import './themes/minimal.css'
 
 export default function App() {
-  const { view, settings, loadCampaigns, storeCampaignToken, setActiveCampaign, setView } = useGameStore()
+  const { view, settings, loadCampaigns, storeCampaignToken, setActiveCampaign, setView, joinAsSpectator } = useGameStore()
+  const [lazyKey, setLazyKey] = useState(0)
 
   // Apply the saved theme on mount and whenever settings.theme changes
   useEffect(() => {
@@ -29,6 +33,12 @@ export default function App() {
   // Handle invite URL params on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    const spectateId = params.get('spectate')
+    if (spectateId) {
+      joinAsSpectator(spectateId).catch(() => {})
+      window.history.replaceState({}, '', window.location.pathname)
+      return
+    }
     const campaignId = params.get('campaign')
     const code = params.get('code')
     if (campaignId && code) {
@@ -53,47 +63,53 @@ export default function App() {
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="app-root">
-      {view !== 'session' && <Header />}
+    <ErrorBoundary onReset={() => setLazyKey(k => k + 1)}>
+      <div className="app-root">
+        {view !== 'session' && <Header />}
 
-      {view === 'session' && (
-        <div className="session-header-row">
-          <Header />
-        </div>
-      )}
+        {view === 'session' && (
+          <div className="session-header-row">
+            <Header />
+          </div>
+        )}
 
-      <main className="app-main">
-        {view === 'campaigns' && <CampaignList />}
-        {view === 'campaign_detail' && <CampaignDetail />}
-        {view === 'session' && <SessionView />}
-      </main>
+        <main className="app-main">
+          <Suspense key={lazyKey} fallback={<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'var(--color-muted,#888)'}}>Loading...</div>}>
+            {view === 'campaigns' && <CampaignList />}
+            {view === 'campaign_detail' && <CampaignDetail />}
+            {view === 'session' && <SessionView />}
+          </Suspense>
+        </main>
 
-      <style>{`
-        .app-root {
-          min-height: 100vh;
-          display: flex;
-          flex-direction: column;
-          background: var(--bg-primary);
-        }
+        <ToastProvider />
 
-        .app-main {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
-          min-height: 0;
-        }
+        <style>{`
+          .app-root {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-primary);
+          }
 
-        /* In session view, the session fills the height so give it full space */
-        .app-root:has(.session-view) .app-main {
-          height: calc(100vh - var(--header-height));
-        }
+          .app-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 0;
+          }
 
-        /* For browsers that don't support :has() */
-        .session-header-row {
-          flex-shrink: 0;
-        }
-      `}</style>
-    </div>
+          /* In session view, the session fills the height so give it full space */
+          .app-root:has(.session-view) .app-main {
+            height: calc(100vh - var(--header-height));
+          }
+
+          /* For browsers that don't support :has() */
+          .session-header-row {
+            flex-shrink: 0;
+          }
+        `}</style>
+      </div>
+    </ErrorBoundary>
   )
 }

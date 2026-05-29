@@ -46,6 +46,19 @@ export interface NarrativeMessage {
   timestamp: string
 }
 
+/**
+ * A single condition entry — either a plain name string or an object carrying
+ * an optional turn-based duration counter.
+ */
+export type Condition = string | { name: string; duration: number | null }
+
+/**
+ * Extract the display name from a Condition value regardless of its shape.
+ */
+export function conditionName(c: Condition): string {
+  return typeof c === 'string' ? c : c.name
+}
+
 /** Full character record belonging to a player in a campaign. */
 export interface Character {
   /** Unique identifier for the character. */
@@ -77,10 +90,43 @@ export interface Character {
   }
   /** List of items the character is carrying. */
   inventory: string[]
-  /** Active status effects or conditions (e.g. "Poisoned", "Prone"). */
-  conditions: string[]
+  /** Active status effects or conditions (e.g. "Poisoned", "Prone"); supports optional duration. */
+  conditions: Condition[]
   /** Free-form notes about backstory, personality, or special abilities. */
   notes: string
+  /** Per-level spell slot state; keys are slot levels '1'–'9'. */
+  spell_slots?: Record<string, { max: number; used: number }>
+  /** Class resource state (Ki, Rage, Superiority Dice, etc.). */
+  resources?: Record<string, { label: string; max: number; used: number }>
+  /** Total experience points accumulated by the character. */
+  xp?: number
+  death_saves?: { successes: number; failures: number }
+  concentration?: string
+  inspiration?: boolean
+  currency?: { gp: number; sp: number; cp: number; ep?: number; pp?: number }
+  spellbook?: Array<{ name: string; level: number; prepared: boolean }>
+  audit_log?: Array<{ timestamp: string; change: string }>
+  hit_dice_remaining?: number
+  exhaustion?: number
+  ac?: number
+  speed?: number
+  initiative_bonus?: number
+  bonds?: string
+  ideals?: string
+  flaws?: string
+  personality?: string
+  alignment?: string
+  background?: string
+  languages?: string[]
+  tool_proficiencies?: string[]
+  features?: Array<{
+    id: string
+    name: string
+    description: string
+    uses_remaining: number
+    uses_max: number
+    recharge: 'short' | 'long' | 'none'
+  }>
 }
 
 /** Shape required to create a new character (id and campaign_id are assigned by the server). */
@@ -118,6 +164,8 @@ export interface GameSettings {
   playerId: string
   /** Human-readable display name shown to other players in the session. */
   playerName: string
+  /** When true, dice-roll sound effects are suppressed. */
+  muteSFX: boolean
 }
 
 // WebSocket message types — Client → Server
@@ -223,6 +271,34 @@ export interface WsDiceResult {
   dice: string
   /** When `true` the result should not be shown publicly in the narrative log. */
   secret?: boolean
+  /** Modifier applied to the roll. */
+  modifier?: number
+  /** Display name of whoever rolled. */
+  roller?: string
+  /** Skill or ability check that triggered this roll. */
+  skill?: string
+}
+
+/** A single entry in the dice roll log. */
+export interface DiceLogEntry {
+  /** Unique identifier for this log entry. */
+  id: string
+  /** ISO 8601 timestamp when the roll occurred. */
+  timestamp: string
+  /** Display name of whoever rolled — "DM" or a player name. */
+  roller: string
+  /** Dice notation string, e.g. `"1d20"`. */
+  dice: string
+  /** Individual die face values. */
+  values: number[]
+  /** Modifier applied to the roll total. */
+  modifier: number
+  /** Final total (sum of values + modifier). */
+  total: number
+  /** When true the roll was secret (DM-only). */
+  secret?: boolean
+  /** Skill or ability check name if this fulfilled a pending roll request. */
+  skill?: string
 }
 
 /** Server-initiated prompt asking the player to roll specific dice. */
@@ -238,6 +314,8 @@ export interface WsDiceRequest {
   skill: string
   /** Difficulty class the roll must meet or exceed; omitted for open rolls. */
   dc?: number
+  advantage?: boolean
+  disadvantage?: boolean
 }
 
 /** Partial state sync pushed from the server after world or character changes. */
@@ -279,6 +357,19 @@ export interface WsSystem {
   text: string
 }
 
+/** Server confirmation that the client has joined a session. */
+export interface WsJoined {
+  type: 'joined'
+  /** The session ID the client joined. */
+  session_id: string
+  /** The player's unique session identifier. */
+  player_id: string
+  /** The player's display name. */
+  player_name: string
+  /** Whether this connection is in spectator (read-only) mode. */
+  is_spectator?: boolean
+}
+
 /** A single room in the procedurally generated dungeon map. */
 export interface MapRoom {
   /** Unique identifier used in `explored_rooms` and the `reveal_area` DM tool. */
@@ -295,6 +386,43 @@ export interface MapRoom {
   w: number
   /** Room height in tiles. */
   h: number
+}
+
+/** In-game world clock and weather state. */
+export interface WorldTime {
+  day: number
+  hour: number
+  minute: number
+  weather: string
+  temperature: string
+  time_of_day: string
+}
+
+/** A document or image the DM has pushed to all players. */
+export interface Handout {
+  id: string
+  title: string
+  content: string
+  type: 'text' | 'image'
+  created_at: string
+}
+
+/** A chronological event entry in the campaign history. */
+export interface TimelineEntry {
+  id: string
+  description: string
+  session_tag: string
+  created_at: string
+}
+
+/** A player-placed pin on the dungeon map. */
+export interface MapAnnotation {
+  id: string
+  x: number
+  y: number
+  text: string
+  player_name: string
+  color?: string
 }
 
 /** Full dungeon map state stored on the campaign and rendered by DungeonMap. */
@@ -337,8 +465,11 @@ export interface Combatant {
   is_player: boolean
   /** Character UUID if the combatant is a player character; null otherwise. */
   character_id: string | null
-  /** Active status conditions (e.g. "Poisoned"). */
-  conditions: string[]
+  /** Active status conditions (e.g. "Poisoned"); supports optional turn-based duration. */
+  conditions: Array<string | { name: string; duration: number | null }>
+  legendary_actions_remaining?: number
+  legendary_actions_max?: number
+  reaction_used?: boolean
 }
 
 /** Server push carrying the full combat tracker state. */
@@ -407,6 +538,87 @@ export interface WsQuestUpdate {
   quests: Quest[]
 }
 
+export interface WsPartyUpdate {
+  type: 'party_update'
+  gold: number
+  items: string[]
+}
+
+export interface WsPinnedUpdate {
+  type: 'pinned_update'
+  pins: Array<{ id: string; text: string }>
+}
+
+/** Relay of a player's voice-recording state. */
+export interface WsVoiceRecording {
+  type: 'voice_recording'
+  player_id: string
+  active: boolean
+}
+
+/** DM-broadcast ambient sound selection. */
+export interface WsAmbientUpdate {
+  type: 'ambient_update'
+  sound: 'tavern' | 'dungeon' | 'battle' | 'forest' | 'rain' | 'none'
+}
+
+/** Map annotation pins update. */
+export interface WsMapAnnotationUpdate {
+  type: 'map_annotation_update'
+  annotations: MapAnnotation[]
+}
+
+/** Server push when world time/weather changes. */
+export interface WsTimeUpdate {
+  type: 'time_update'
+  world_time: WorldTime
+}
+
+/** Server push delivering a new DM handout to all clients. */
+export interface WsHandoutPush {
+  type: 'handout_push'
+  handout: Handout
+}
+
+export interface WsOOCBroadcast {
+  type: 'ooc_broadcast'
+  player_id: string
+  player_name: string
+  text: string
+  timestamp: string
+}
+
+export interface WsReadyCheck {
+  type: 'ready_check'
+  message: string
+  from_player_id: string
+}
+
+export interface WsReadyResponse {
+  type: 'ready_response'
+  player_id: string
+  player_name: string
+  ready: boolean
+}
+
+export interface WsPing {
+  type: 'ping'
+}
+
+export interface WsSceneMarker {
+  type: 'scene_marker'
+  title: string
+}
+
+export interface WsSecretRollResult {
+  type: 'secret_roll_result'
+  dice: string
+  values: number[]
+  total: number
+  modifier: number
+  reason: string
+}
+
 /** Union of all messages the server may push to the client over the WebSocket. */
 export type WsServerMessage =
   | WsDmChunk
@@ -419,8 +631,39 @@ export type WsServerMessage =
   | WsPlayerLeft
   | WsError
   | WsSystem
+  | WsJoined
   | WsMapUpdate
   | WsCombatUpdate
   | WsNpcUpdate
   | WsSceneImage
   | WsQuestUpdate
+  | WsPartyUpdate
+  | WsPinnedUpdate
+  | WsVoiceRecording
+  | WsAmbientUpdate
+  | WsMapAnnotationUpdate
+  | WsTimeUpdate
+  | WsHandoutPush
+  | WsOOCBroadcast
+  | WsReadyCheck
+  | WsReadyResponse
+  | WsPing
+  | WsSceneMarker
+  | WsSecretRollResult
+
+export type AmbientSound = 'tavern' | 'dungeon' | 'battle' | 'forest' | 'rain' | 'none'
+
+export interface Toast {
+  id: string
+  message: string
+  type: 'success' | 'error' | 'info' | 'warning'
+  duration?: number
+}
+
+export interface OOCEntry {
+  id: string
+  player_id: string
+  player_name: string
+  text: string
+  timestamp: string
+}

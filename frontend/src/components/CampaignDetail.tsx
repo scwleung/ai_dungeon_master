@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useGameStore } from '../store/gameStore'
+import { api } from '../api/client'
 import { CharacterForm } from './CharacterForm'
 import { SessionJournal } from './SessionJournal'
+import Timeline from './Timeline'
 import type { Character, Session } from '../types'
 
 const RULESET_LABELS: Record<string, string> = {
@@ -133,6 +135,7 @@ export function CampaignDetail() {
     characters,
     sessions,
     campaignTokens,
+    storeCampaignToken,
     startSession,
     setActiveSession,
     setView,
@@ -147,6 +150,9 @@ export function CampaignDetail() {
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'journal'>('overview')
   const [copiedInvite, setCopiedInvite] = useState(false)
+  const [rotateFlash, setRotateFlash] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [showTimeline, setShowTimeline] = useState(false)
 
   useEffect(() => {
     if (activeCampaign) {
@@ -204,6 +210,37 @@ export function CampaignDetail() {
     }
   }
 
+  async function handleExport() {
+    if (!activeCampaign) return
+    setExportError(null)
+    try {
+      const data = await api.campaigns.export(activeCampaign.id)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${activeCampaign.name.replace(/\s+/g, '_')}_export.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Export failed.')
+    }
+  }
+
+  async function handleRotateCode() {
+    if (!activeCampaign) return
+    try {
+      const res = await api.campaigns.rotateAccessCode(activeCampaign.id)
+      storeCampaignToken(activeCampaign.id, res.access_code)
+      setRotateFlash(true)
+      setTimeout(() => setRotateFlash(false), 2000)
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Failed to rotate access code.')
+    }
+  }
+
   const sortedSessions = [...sessions].sort(
     (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
   )
@@ -225,6 +262,30 @@ export function CampaignDetail() {
             </div>
           </div>
           <div className="campaign-header-actions">
+            {isDM && (
+              <button
+                className="btn-ghost btn-sm"
+                onClick={() => setShowTimeline(true)}
+              >📅 Timeline</button>
+            )}
+            {isDM && (
+              <button
+                className="btn-ghost btn-sm"
+                onClick={handleExport}
+                title="Export campaign as JSON"
+              >
+                ⬇ Export
+              </button>
+            )}
+            {isDM && (
+              <button
+                className="btn-ghost btn-sm"
+                onClick={handleRotateCode}
+                title="Rotate access code"
+              >
+                {rotateFlash ? 'Code rotated!' : '🔄 Rotate Code'}
+              </button>
+            )}
             {isDM && (
               <button
                 className="btn-ghost btn-sm copy-invite-btn"
@@ -256,6 +317,7 @@ export function CampaignDetail() {
         )}
 
         {sessionError && <div className="error-banner">{sessionError}</div>}
+        {exportError && <div className="error-banner">{exportError}</div>}
 
         <WorldState worldState={activeCampaign.world_state} />
       </div>
@@ -344,6 +406,14 @@ export function CampaignDetail() {
           campaignId={activeCampaign.id}
           onClose={() => setShowCharForm(false)}
           onCreated={handleCharCreated}
+        />
+      )}
+
+      {showTimeline && activeCampaign && (
+        <Timeline
+          campaignId={activeCampaign.id}
+          accessCode={campaignTokens[activeCampaign.id] ?? ''}
+          onClose={() => setShowTimeline(false)}
         />
       )}
 

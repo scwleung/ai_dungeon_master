@@ -32,6 +32,9 @@ export function useWebSocket(sessionId: string | null) {
   const storeRef = useRef(store)
   storeRef.current = store
 
+  // Track whether we know this connection is spectator-mode (set after joined msg)
+  const isSpectatorRef = useRef(store.isSpectator)
+
   const clearReconnect = () => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
@@ -43,12 +46,15 @@ export function useWebSocket(sessionId: string | null) {
     if (!sessionId) return
     if (unmountedRef.current) return
 
-    const { settings } = storeRef.current
+    const { settings, isSpectator } = storeRef.current
+    isSpectatorRef.current = isSpectator
     const params = new URLSearchParams({
       player_id: settings.playerId,
       player_name: settings.playerName,
-      access_code: getAccessCode(),
     })
+    if (!isSpectator) {
+      params.set('access_code', getAccessCode())
+    }
 
     // Use relative path so vite proxy handles it
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -89,11 +95,12 @@ export function useWebSocket(sessionId: string | null) {
       setConnected(false)
       wsRef.current = null
 
-      // Exponential backoff reconnect
-      const delay = Math.min(
+      // Exponential backoff reconnect with jitter
+      const baseDelay = Math.min(
         BASE_RECONNECT_MS * 2 ** reconnectAttemptRef.current,
         MAX_RECONNECT_MS
       )
+      const delay = baseDelay * (0.5 + Math.random() * 0.5)
       reconnectAttemptRef.current += 1
       reconnectTimeoutRef.current = setTimeout(() => {
         if (!unmountedRef.current && sessionId) {
@@ -149,6 +156,8 @@ export function useWebSocket(sessionId: string | null) {
             dice: msg.dice,
             skill: msg.skill,
             dc: msg.dc,
+            advantage: msg.advantage,
+            disadvantage: msg.disadvantage,
           })
           s.appendMessage({
             id: `dice_req_${msg.roll_request_id}`,
@@ -168,7 +177,36 @@ export function useWebSocket(sessionId: string | null) {
               timestamp: new Date().toISOString(),
             })
           }
+          s.addDiceLogEntry({
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            roller: msg.roller ?? 'Unknown',
+            dice: msg.dice ?? '?',
+            values: msg.values ?? [],
+            modifier: msg.modifier ?? 0,
+            total: msg.total ?? 0,
+            secret: msg.secret,
+            skill: msg.skill,
+          })
           s.setPendingRoll(null)
+          if (!storeRef.current.settings.muteSFX) {
+            try {
+              const ctx = new AudioContext()
+              const osc = ctx.createOscillator()
+              const gain = ctx.createGain()
+              osc.connect(gain)
+              gain.connect(ctx.destination)
+              osc.frequency.setValueAtTime(600, ctx.currentTime)
+              osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.08)
+              gain.gain.setValueAtTime(0.25, ctx.currentTime)
+              gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08)
+              osc.start(ctx.currentTime)
+              osc.stop(ctx.currentTime + 0.08)
+              setTimeout(() => ctx.close(), 200)
+            } catch {
+              // AudioContext may be blocked by browser policy
+            }
+          }
           break
         }
 
@@ -235,6 +273,13 @@ export function useWebSocket(sessionId: string | null) {
           break
         }
 
+        case 'joined': {
+          if (msg.is_spectator) {
+            s.setIsSpectator(true)
+          }
+          break
+        }
+
         case 'error': {
           s.appendMessage({
             id: `err_${Date.now()}_${Math.random()}`,
@@ -271,6 +316,96 @@ export function useWebSocket(sessionId: string | null) {
 
         case 'scene_image': {
           s.setSceneImage({ url: msg.url, description: msg.description })
+          break
+        }
+
+        case 'party_update': {
+          s.setPartyState({ gold: msg.gold, items: msg.items })
+          break
+        }
+
+        case 'pinned_update': {
+          s.setPinnedNotes(msg.pins)
+          break
+        }
+
+        case 'voice_recording': {
+          s.setPlayerRecording(msg.player_id, msg.active)
+          break
+        }
+
+        case 'ambient_update': {
+          s.setCurrentAmbient(msg.sound)
+          break
+        }
+
+        case 'map_annotation_update': {
+          s.setMapAnnotations(msg.annotations)
+          break
+        }
+
+        case 'time_update': {
+          s.setWorldTime(msg.world_time)
+          break
+        }
+
+        case 'handout_push': {
+          s.addHandout(msg.handout)
+          s.setActiveHandout(msg.handout)
+          break
+        }
+
+        case 'ooc_broadcast': {
+          s.addOOCMessage({
+            id: crypto.randomUUID(),
+            player_id: msg.player_id,
+            player_name: msg.player_name,
+            text: msg.text,
+            timestamp: msg.timestamp,
+          })
+          break
+        }
+
+        case 'ready_check': {
+          s.clearReadyState()
+          s.appendMessage({
+            id: `ready_${Date.now()}`,
+            role: 'system',
+            text: `🙋 Ready check from DM: "${msg.message}"`,
+            timestamp: new Date().toISOString(),
+          })
+          break
+        }
+
+        case 'ready_response': {
+          s.setReadyResponse(msg.player_id, msg.ready)
+          break
+        }
+
+        case 'ping': {
+          // Respond with pong to keep connection alive
+          send({ type: 'pong' } as any)
+          break
+        }
+
+        case 'scene_marker': {
+          s.appendMessage({
+            id: `scene_${Date.now()}`,
+            role: 'system',
+            text: `🎬 SCENE: ${msg.title}`,
+            timestamp: new Date().toISOString(),
+          })
+          break
+        }
+
+        case 'secret_roll_result': {
+          s.addSecretRoll({
+            dice: msg.dice,
+            values: msg.values,
+            total: msg.total,
+            reason: msg.reason,
+          })
+          s.addToast(`🎲 Secret roll (${msg.reason || msg.dice}): ${msg.total}`, 'info', 4000)
           break
         }
       }
@@ -333,5 +468,73 @@ export function useWebSocket(sessionId: string | null) {
     [send]
   )
 
-  return { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll }
+  const sendVoiceRecording = useCallback(
+    (active: boolean) => {
+      const { settings } = storeRef.current
+      send({ type: 'voice_recording' as any, player_id: settings.playerId, active } as any)
+    },
+    [send]
+  )
+
+  const sendAmbientUpdate = useCallback(
+    (sound: string) => {
+      send({ type: 'ambient_update' as any, sound } as any)
+    },
+    [send]
+  )
+
+  const sendOOC = useCallback(
+    (text: string) => {
+      const { settings } = storeRef.current
+      send({ type: 'ooc_message' as any, player_id: settings.playerId, player_name: settings.playerName, text } as any)
+    },
+    [send]
+  )
+
+  const sendReadyCheck = useCallback(
+    (message: string) => {
+      send({ type: 'ready_check' as any, message } as any)
+    },
+    [send]
+  )
+
+  const sendReadyResponse = useCallback(
+    (ready: boolean) => {
+      const { settings } = storeRef.current
+      send({ type: 'ready_response' as any, player_id: settings.playerId, player_name: settings.playerName, ready } as any)
+    },
+    [send]
+  )
+
+  const sendSecretRoll = useCallback(
+    (dice: string, reason: string) => {
+      send({ type: 'dm_secret_roll' as any, dice, reason } as any)
+    },
+    [send]
+  )
+
+  const sendSceneMarker = useCallback(
+    (title: string) => {
+      send({ type: 'scene_marker' as any, title } as any)
+    },
+    [send]
+  )
+
+  const sendUseReaction = useCallback((name: string) => {
+    send({ type: 'combat_use_reaction' as any, name } as any)
+  }, [send])
+
+  const sendResetReactions = useCallback(() => {
+    send({ type: 'combat_reset_reactions' as any } as any)
+  }, [send])
+
+  const sendLegendaryAction = useCallback((name: string, delta = -1) => {
+    send({ type: 'combat_legendary_action' as any, name, delta } as any)
+  }, [send])
+
+  const sendFeatureUse = useCallback((characterId: string, featureId: string, delta = -1) => {
+    send({ type: 'update_character' as any, character_id: characterId, feature_use: { feature_id: featureId, delta } } as any)
+  }, [send])
+
+  return { connected, sendAction, sendVoiceTranscript, sendDiceImage, sendManualRoll, sendVoiceRecording, sendAmbientUpdate, sendOOC, sendReadyCheck, sendReadyResponse, sendSecretRoll, sendSceneMarker, sendUseReaction, sendResetReactions, sendLegendaryAction, sendFeatureUse }
 }

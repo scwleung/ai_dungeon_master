@@ -9,15 +9,45 @@ Pydantic schemas:
     CharacterResponse — output schema returned by the characters API.
     CharacterUpdate   — partial-update schema (PATCH semantics; all fields optional).
 
-JSON storage note: ``stats`` (dict), ``inventory`` (list[str]), and
-``conditions`` (list[str]) are stored as JSON strings in SQLite.  The
-``parse_json_fields`` validator deserialises them when building response objects,
-and the ``update_character`` endpoint re-serialises them on write.
+JSON storage note: ``stats`` (dict), ``inventory`` (list[str]), ``conditions``,
+``spell_slots``, ``currency``, ``spellbook``, ``languages``,
+``tool_proficiencies``, ``features``, and ``audit_log`` are stored as JSON
+strings in SQLite / PostgreSQL.  The ``parse_json_fields`` validator deserialises
+them when building response objects, and write endpoints re-serialise them on
+save.
+
+``conditions`` may contain either plain strings (e.g. ``"Poisoned"``) or
+objects of the form ``{"name": str, "duration": str}`` when a duration is
+relevant to the condition.
+
+New columns added after initial schema creation (applied via ALTER TABLE in
+``backend/main.py`` lifespan):
+    bonds, ideals, flaws, personality  — character backstory text fields.
+    languages          — JSON list of known languages.
+    tool_proficiencies — JSON list of tool proficiency strings.
+    features           — JSON list of class feature objects:
+                         ``[{id, name, description, uses_remaining, uses_max, recharge}]``.
+                         The ``feature_use`` field in ``CharacterUpdate`` accepts
+                         ``{feature_id, delta}`` to atomically adjust ``uses_remaining``.
+    hit_dice_remaining — Integer; decremented when a hit die is spent during a short rest.
+    exhaustion         — Integer 0–6 (0 = none, 6 = death).
+    currency           — JSON dict: ``{"gp": int, "sp": int, "cp": int, "ep": int, "pp": int}``.
+    spellbook          — JSON list of spell objects: ``[{name, level, prepared}]``.
+    audit_log          — JSON list of timestamped change records (read-only via GET endpoint);
+                         capped at 200 entries.
+    death_saves        — JSON dict: ``{"successes": int, "failures": int}``.
+    concentration      — String name of the spell being concentrated on, or ``null``.
+    inspiration        — Integer (0 or 1); surfaced as boolean in ``CharacterResponse``.
+    xp                 — Integer; total accumulated experience points.
+    spell_slots        — JSON dict keyed by slot level (``"1"``–``"9"``), values
+                         ``{"max": int, "used": int}``.
+    resources          — JSON dict of class resource objects keyed by snake_case name,
+                         values ``{"label": str, "max": int, "used": int}``.
 """
 
 import json
 import uuid
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from sqlalchemy import String, Text, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -49,9 +79,34 @@ class Character(Base):
         stats: JSON-serialised ability-score dict
             ``{"STR": int, "DEX": int, "CON": int, "INT": int, "WIS": int, "CHA": int}``.
         inventory: JSON-serialised list of item name strings.
-        conditions: JSON-serialised list of active condition strings
-            (e.g. ``["Poisoned", "Prone"]``).
+        conditions: JSON-serialised list of active condition strings or objects.
+            Simple form: ``["Poisoned", "Prone"]``.
+            Extended form: ``[{"name": "Poisoned", "duration": "1 minute"}, ...]``.
         notes: Free-text field for backstory, session notes, etc.
+        spell_slots: JSON dict keyed by slot level (``"1"``–``"9"``),
+            values ``{"max": int, "used": int}``.  ``None`` for non-spellcasters.
+        resources: JSON dict of class resource objects keyed by snake_case name,
+            values ``{"label": str, "max": int, "used": int}``.  ``None`` if unused.
+        xp: Total accumulated experience points.
+        death_saves: JSON dict ``{"successes": int, "failures": int}``.
+        concentration: String name of the spell being concentrated on, or ``None``.
+        inspiration: Integer (0 or 1); surfaced as boolean in ``CharacterResponse``.
+        currency: JSON dict ``{"gp": int, "sp": int, "cp": int, "ep": int, "pp": int}``.
+        spellbook: JSON list of spell objects ``[{"name": str, "level": int, "prepared": bool}]``.
+        audit_log: JSON list of change records
+            ``[{"timestamp": str, "change": str}]``; capped at 200 entries; read-only.
+        hit_dice_remaining: Number of hit dice remaining for short rests.
+        exhaustion: Exhaustion level 0–6 (0 = none, 6 = death).
+        bonds: Character bonds free-text.
+        ideals: Character ideals free-text.
+        flaws: Character flaws free-text.
+        personality: Character personality traits free-text.
+        languages: JSON list of known languages (e.g. ``["Common", "Elvish"]``).
+        tool_proficiencies: JSON list of tool proficiency strings.
+        features: JSON list of class feature objects
+            ``[{id, name, description, uses_remaining, uses_max, recharge}]``.
+            The ``feature_use`` payload ``{feature_id, delta}`` atomically adjusts
+            ``uses_remaining``.
         campaign: Back-reference to the parent ``Campaign`` object.
     """
 
@@ -76,6 +131,26 @@ class Character(Base):
     inventory: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     conditions: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    spell_slots: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    resources: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    xp: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    death_saves: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    concentration: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    inspiration: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
+    currency: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    spellbook: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    audit_log: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+    hit_dice_remaining: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    exhaustion: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
+    bonds: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ideals: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    flaws: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    personality: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    alignment: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    background: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    languages: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
+    tool_proficiencies: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
+    features: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="characters")  # type: ignore[name-defined]
 
@@ -132,6 +207,26 @@ class CharacterResponse(BaseModel):
     inventory: list[str]
     conditions: list[str]
     notes: str
+    spell_slots: Optional[Dict[str, Any]] = None
+    resources: Optional[Dict[str, Any]] = None
+    xp: Optional[int] = None
+    death_saves: Optional[Dict[str, int]] = None
+    concentration: Optional[str] = None
+    inspiration: bool = False
+    currency: Optional[Dict[str, int]] = None   # {"gp": 0, "sp": 0, "cp": 0, "ep": 0, "pp": 0}
+    spellbook: Optional[list] = None            # list of {"name": str, "level": int, "prepared": bool}
+    audit_log: Optional[list] = None            # read-only, list of {"timestamp": str, "change": str}
+    hit_dice_remaining: Optional[int] = None
+    exhaustion: int = 0
+    bonds: Optional[str] = None
+    ideals: Optional[str] = None
+    flaws: Optional[str] = None
+    personality: Optional[str] = None
+    alignment: Optional[str] = None
+    background: Optional[str] = None
+    languages: Optional[list] = None
+    tool_proficiencies: Optional[list] = None
+    features: Optional[list] = None
 
     model_config = {"from_attributes": True}
 
@@ -164,6 +259,26 @@ class CharacterResponse(BaseModel):
                 "inventory": safe_json(obj.inventory, []),
                 "conditions": safe_json(obj.conditions, []),
                 "notes": obj.notes,
+                "spell_slots": safe_json(getattr(obj, "spell_slots", None), None),
+                "resources": safe_json(getattr(obj, "resources", None), None),
+                "xp": getattr(obj, "xp", None),
+                "death_saves": safe_json(getattr(obj, "death_saves", None), None),
+                "concentration": getattr(obj, "concentration", None),
+                "inspiration": bool(getattr(obj, "inspiration", 0) or 0),
+                "currency": safe_json(getattr(obj, "currency", None), None),
+                "spellbook": safe_json(getattr(obj, "spellbook", None), None),
+                "audit_log": safe_json(getattr(obj, "audit_log", None), None),
+                "hit_dice_remaining": getattr(obj, "hit_dice_remaining", None),
+                "exhaustion": int(getattr(obj, "exhaustion", 0) or 0),
+                "bonds": getattr(obj, "bonds", None),
+                "ideals": getattr(obj, "ideals", None),
+                "flaws": getattr(obj, "flaws", None),
+                "personality": getattr(obj, "personality", None),
+                "alignment": getattr(obj, "alignment", None),
+                "background": getattr(obj, "background", None),
+                "languages": safe_json(getattr(obj, "languages", None), []),
+                "tool_proficiencies": safe_json(getattr(obj, "tool_proficiencies", None), []),
+                "features": safe_json(getattr(obj, "features", None), []),
             }
         if isinstance(values, dict):
 
@@ -177,6 +292,9 @@ class CharacterResponse(BaseModel):
 
             for field, default in [("stats", {}), ("inventory", []), ("conditions", [])]:
                 values[field] = safe_json(values.get(field), default)
+            for field in ("spell_slots", "resources", "death_saves"):
+                if field in values:
+                    values[field] = safe_json(values.get(field), None)
         return values
 
 
@@ -198,3 +316,23 @@ class CharacterUpdate(BaseModel):
     inventory: Optional[list[str]] = None
     conditions: Optional[list[str]] = None
     notes: Optional[str] = None
+    spell_slots: Optional[Dict[str, Any]] = None
+    resources: Optional[Dict[str, Any]] = None
+    xp: Optional[int] = None
+    death_saves: Optional[Dict[str, int]] = None
+    concentration: Optional[str] = None
+    inspiration: Optional[bool] = None
+    currency: Optional[Dict[str, int]] = None
+    spellbook: Optional[list] = None
+    hit_dice_remaining: Optional[int] = None
+    exhaustion: Optional[int] = None
+    bonds: Optional[str] = None
+    ideals: Optional[str] = None
+    flaws: Optional[str] = None
+    personality: Optional[str] = None
+    alignment: Optional[str] = None
+    background: Optional[str] = None
+    languages: Optional[list] = None
+    tool_proficiencies: Optional[list] = None
+    features: Optional[list] = None
+    feature_use: Optional[dict] = None  # {"feature_id": str, "delta": int}

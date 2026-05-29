@@ -36,6 +36,15 @@ function rollDice(count: number, sides: DieType): number[] {
  * For freeform rolls, {@link onSendToChat} broadcasts the result as a player
  * action so all session participants see it.
  */
+function rollAdvantage(modifier: number, keepHighest: boolean): { values: [number, number]; kept: number; total: number } {
+  const arr = new Uint32Array(2)
+  crypto.getRandomValues(arr)
+  const a = (arr[0] % 20) + 1
+  const b = (arr[1] % 20) + 1
+  const kept = keepHighest ? Math.max(a, b) : Math.min(a, b)
+  return { values: [a, b], kept, total: kept + modifier }
+}
+
 export function DiceRoller({ pendingRoll, onSendManualRoll, onSendToChat, onClose }: Props) {
   const [selectedDie, setSelectedDie] = useState<DieType>(20)
   const [count, setCount] = useState(1)
@@ -43,6 +52,7 @@ export function DiceRoller({ pendingRoll, onSendManualRoll, onSendToChat, onClos
   const [lastValues, setLastValues] = useState<number[] | null>(null)
   const [lastTotal, setLastTotal] = useState<number | null>(null)
   const [history, setHistory] = useState<RollHistoryEntry[]>([])
+  const [advantageRolls, setAdvantageRolls] = useState<[number, number] | null>(null)
 
   useEffect(() => {
     if (pendingRoll) {
@@ -58,24 +68,36 @@ export function DiceRoller({ pendingRoll, onSendManualRoll, onSendToChat, onClos
       setModifier(0)
       setLastValues(null)
       setLastTotal(null)
+      setAdvantageRolls(null)
     }
   }, [pendingRoll])
 
   function handleRoll() {
-    const values = rollDice(count, selectedDie)
-    const sum = values.reduce((a, b) => a + b, 0)
-    const total = sum + modifier
-    setLastValues(values)
-    setLastTotal(total)
-
-    const notation = `${count}d${selectedDie}${modifier !== 0 ? (modifier > 0 ? `+${modifier}` : `${modifier}`) : ''}`
-    const entry: RollHistoryEntry = { notation, values, total, modifier }
-    setHistory((prev) => [entry, ...prev].slice(0, 6))
+    if (pendingRoll?.advantage || pendingRoll?.disadvantage) {
+      const keepHighest = !!pendingRoll.advantage
+      const result = rollAdvantage(modifier, keepHighest)
+      setAdvantageRolls(result.values)
+      setLastValues([result.kept])
+      setLastTotal(result.total)
+      const notation = `2d20${keepHighest ? ' adv' : ' dis'}${modifier !== 0 ? (modifier > 0 ? `+${modifier}` : `${modifier}`) : ''}`
+      setHistory((prev) => [{ notation, values: result.values as number[], total: result.total, modifier }, ...prev].slice(0, 6))
+    } else {
+      const values = rollDice(count, selectedDie)
+      const sum = values.reduce((a, b) => a + b, 0)
+      const total = sum + modifier
+      setLastValues(values)
+      setLastTotal(total)
+      setAdvantageRolls(null)
+      const notation = `${count}d${selectedDie}${modifier !== 0 ? (modifier > 0 ? `+${modifier}` : `${modifier}`) : ''}`
+      const entry: RollHistoryEntry = { notation, values, total, modifier }
+      setHistory((prev) => [entry, ...prev].slice(0, 6))
+    }
   }
 
   function handleSubmitRoll() {
     if (!pendingRoll || lastValues === null || lastTotal === null) return
-    onSendManualRoll(pendingRoll.roll_request_id, lastValues, lastTotal)
+    const submitValues = advantageRolls ? Array.from(advantageRolls) : lastValues
+    onSendManualRoll(pendingRoll.roll_request_id, submitValues, lastTotal)
   }
 
   function handleSendToChat() {
@@ -100,6 +122,12 @@ export function DiceRoller({ pendingRoll, onSendManualRoll, onSendToChat, onClos
             Roll {pendingRoll.dice} for <strong>{pendingRoll.skill}</strong>
             {pendingRoll.dc !== undefined && (
               <span className="dice-pending-dc"> (DC {pendingRoll.dc})</span>
+            )}
+            {pendingRoll.advantage && (
+              <span style={{ marginLeft: '0.5rem', color: '#2ecc71', fontWeight: 700, fontSize: '0.8rem' }}>⬆ Advantage</span>
+            )}
+            {pendingRoll.disadvantage && (
+              <span style={{ marginLeft: '0.5rem', color: '#e74c3c', fontWeight: 700, fontSize: '0.8rem' }}>⬇ Disadvantage</span>
             )}
           </div>
         </div>
@@ -147,7 +175,13 @@ export function DiceRoller({ pendingRoll, onSendManualRoll, onSendToChat, onClos
 
         {hasRolled && (
           <div className="dice-result">
-            <div className="dice-result-values">[{lastValues!.join(', ')}]</div>
+            {advantageRolls ? (
+              <>
+                <div className="dice-result-values">Rolled: [{advantageRolls[0]}, {advantageRolls[1]}] — keeping {lastValues![0]}</div>
+              </>
+            ) : (
+              <div className="dice-result-values">[{lastValues!.join(', ')}]</div>
+            )}
             <div className="dice-result-total">
               = <span className="dice-result-num">{lastTotal}</span>
             </div>

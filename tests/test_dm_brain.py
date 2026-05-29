@@ -1,5 +1,4 @@
 """Tests for DungeonMaster from backend.services.dm_brain."""
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from backend.services.dm_brain import DungeonMaster
@@ -343,5 +342,10 @@ async def test_summarize_history_system_prompt_mentions_rpg():
     )
     await dm.summarize_history("USER: I search the room.")
     call_kwargs = dm.client.messages.create.call_args
-    system_text = call_kwargs[1]["system"]
+    system_raw = call_kwargs[1]["system"]
+    # system may be a plain string or a list of cache-control blocks
+    if isinstance(system_raw, list):
+        system_text = " ".join(b.get("text", "") if isinstance(b, dict) else b for b in system_raw)
+    else:
+        system_text = system_raw
     assert "RPG" in system_text or "tabletop" in system_text.lower()

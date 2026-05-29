@@ -20,10 +20,21 @@ if DATABASE_URL.startswith("postgres://"):
 elif DATABASE_URL.startswith("postgresql://") and "+asyncpg" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+# Apply connection-pool settings only for PostgreSQL (aiosqlite ignores them).
+_pool_kwargs: dict = {}
+if "sqlite" not in DATABASE_URL:
+    _pool_kwargs = {
+        "pool_size": 20,
+        "max_overflow": 40,
+        "pool_pre_ping": True,
+        "pool_recycle": 3600,
+    }
+
 async_engine = create_async_engine(
     DATABASE_URL,
     echo=False,
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
+    **_pool_kwargs,
 )
 
 AsyncSessionLocal = async_sessionmaker(

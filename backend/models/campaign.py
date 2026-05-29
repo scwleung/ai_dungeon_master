@@ -24,7 +24,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, func
+from sqlalchemy import String, Text, DateTime, ForeignKey, Index, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
@@ -122,6 +122,8 @@ class Session(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     pinned_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
     dm_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+
+    __table_args__ = (Index("ix_session_campaign_id", "campaign_id"),)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="sessions")
 

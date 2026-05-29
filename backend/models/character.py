@@ -49,7 +49,7 @@ import json
 import uuid
 from typing import Any, Dict, Optional
 
-from sqlalchemy import String, Text, Integer, ForeignKey
+from sqlalchemy import String, Text, Integer, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
@@ -151,6 +151,8 @@ class Character(Base):
     languages: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
     tool_proficiencies: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
     features: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default='[]')
+
+    __table_args__ = (Index("ix_character_campaign_id", "campaign_id"),)
 
     campaign: Mapped["Campaign"] = relationship("Campaign", back_populates="characters")  # type: ignore[name-defined]
 

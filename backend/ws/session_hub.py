@@ -31,6 +31,8 @@ Key methods:
 
 from __future__ import annotations
 
+import time
+
 from typing import AsyncGenerator, Optional
 
 from fastapi import WebSocket
@@ -52,6 +54,8 @@ class SessionHub:
         self._player_sockets: dict[WebSocket, tuple[str, str]] = {}
         # spectator-only connections
         self._spectators: set[WebSocket] = set()
+        # session_id -> monotonic timestamp of last activity
+        self._last_activity: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Connection management
@@ -73,6 +77,7 @@ class SessionHub:
         if session_id not in self._rooms:
             self._rooms[session_id] = set()
         self._rooms[session_id].add(ws)
+        self._last_activity[session_id] = time.monotonic()
         self._player_sockets[ws] = (session_id, player_id)
 
     def mark_spectator(self, ws: WebSocket) -> None:
@@ -105,6 +110,10 @@ class SessionHub:
                 del self._rooms[session_id]
 
         self._spectators.discard(ws)
+
+        # Clean up last-activity entry if the room is now empty
+        if session_id not in self._rooms:
+            self._last_activity.pop(session_id, None)
 
         return session_id, player_id
 
@@ -171,6 +180,7 @@ class SessionHub:
             message: The JSON-serialisable payload.
             exclude_ws: If provided, this socket will not receive the message.
         """
+        self._last_activity[session_id] = time.monotonic()
         room = self._rooms.get(session_id)
         if not room:
             return
@@ -238,6 +248,25 @@ class SessionHub:
                     pass
         self._rooms.clear()
         self._spectators.clear()
+
+    def evict_stale(self, max_age: float = 3600.0) -> list[str]:
+        """Close and remove rooms with no activity for *max_age* seconds.
+
+        Returns the list of evicted session IDs. Call periodically from a
+        background task to prevent unbounded memory growth after clients
+        disconnect without going through the normal teardown path.
+        """
+        now = time.monotonic()
+        evicted: list[str] = []
+        for session_id, last_seen in list(self._last_activity.items()):
+            if now - last_seen > max_age:
+                room = self._rooms.pop(session_id, set())
+                for ws in room:
+                    self._player_sockets.pop(ws, None)
+                    self._spectators.discard(ws)
+                self._last_activity.pop(session_id, None)
+                evicted.append(session_id)
+        return evicted
 
 
 # ---------------------------------------------------------------------------

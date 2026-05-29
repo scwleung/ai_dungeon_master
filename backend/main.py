@@ -80,6 +80,12 @@ _rl_store: dict[str, deque] = defaultdict(deque)
 _RL_LIMIT = 60
 _RL_WINDOW = 60.0
 
+# Campaign+character cache — avoids a DB round-trip on every player action.
+# Entries expire after CAMPAIGN_CACHE_TTL seconds or are explicitly invalidated
+# after any tool call that mutates campaign data (NPCs, quests, world state).
+_campaign_cache: dict[str, tuple] = {}
+CAMPAIGN_CACHE_TTL = 30.0
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -395,8 +401,15 @@ async def _maybe_summarize_session(session_id: str) -> None:
 
 async def _load_campaign_and_characters(
     campaign_id: str,
+    bypass_cache: bool = False,
 ) -> tuple[Optional[Campaign], list[Character]]:
-    """Load Campaign and its Characters from the DB."""
+    """Load Campaign and its Characters, using a short-lived in-memory cache."""
+    now = _time.monotonic()
+    if not bypass_cache:
+        cached = _campaign_cache.get(campaign_id)
+        if cached and (now - cached[2]) < CAMPAIGN_CACHE_TTL:
+            return cached[0], cached[1]
+
     async with AsyncSessionLocal() as db:
         campaign_result = await db.execute(
             select(Campaign)
@@ -405,9 +418,17 @@ async def _load_campaign_and_characters(
         )
         campaign = campaign_result.scalar_one_or_none()
         if campaign is None:
+            _campaign_cache.pop(campaign_id, None)
             return None, []
         characters = list(campaign.characters)
-        return campaign, characters
+
+    _campaign_cache[campaign_id] = (campaign, characters, now)
+    return campaign, characters
+
+
+def _invalidate_campaign_cache(campaign_id: str) -> None:
+    """Drop the cached campaign entry so the next load fetches fresh data."""
+    _campaign_cache.pop(campaign_id, None)
 
 
 async def _reveal_area_in_db(campaign_id: str, room_id: str) -> tuple[str, list[str]]:
@@ -753,6 +774,7 @@ async def websocket_endpoint(
             updates = tool_input.get("updates", {})
             if not updates:
                 return "No updates provided for update_world_state."
+            _invalidate_campaign_cache(campaign_id)
             return await _update_world_state_in_db(campaign_id, updates)
 
         elif tool_name == "reveal_area":
@@ -778,7 +800,12 @@ async def websocket_endpoint(
 
         elif tool_name == "next_turn":
             state = game_state_manager.advance_turn(session_id)
-            await session_hub.broadcast(session_id, {"type": "combat_update", **state.to_dict()})
+            await session_hub.broadcast(session_id, {
+                "type": "combat_update",
+                "active": True,
+                "round": state.round,
+                "turn_index": state.turn_index,
+            })
             current = state.current_combatant()
             return f"Round {state.round}, turn: {current.name if current else 'none'}."
 
@@ -793,6 +820,7 @@ async def websocket_endpoint(
             message, npcs = await _upsert_npc_in_db(campaign_id, tool_input)
             if npcs is not None:
                 await session_hub.broadcast(session_id, {"type": "npc_update", "npcs": npcs})
+            _invalidate_campaign_cache(campaign_id)
             return message
 
         elif tool_name == "upsert_quest":
@@ -801,6 +829,7 @@ async def websocket_endpoint(
             message, quests = await _upsert_quest_in_db(campaign_id, tool_input)
             if quests is not None:
                 await session_hub.broadcast(session_id, {"type": "quest_update", "quests": quests})
+            _invalidate_campaign_cache(campaign_id)
             return message
 
         elif tool_name == "update_party_state":
@@ -974,6 +1003,7 @@ async def websocket_endpoint(
                         message_history=history,
                         new_message=action_text,
                         on_tool_use=on_tool_use,
+                        in_combat=bool(game_state_manager._combat.get(session_id)),
                     ):
                         full_response_parts.append(chunk)
                         yield chunk

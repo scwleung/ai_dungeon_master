@@ -147,7 +147,8 @@ _GENERATOR_SYSTEM: list[dict] = [{
 # Tool definitions
 # ---------------------------------------------------------------------------
 
-TOOLS: list[dict] = [
+# Tools always available to the DM regardless of game state.
+TOOLS_BASE: list[dict] = [
     {
         "name": "roll_dice",
         "description": (
@@ -368,16 +369,6 @@ TOOLS: list[dict] = [
         },
     },
     {
-        "name": "next_turn",
-        "description": "Advance to the next combatant in the initiative order.",
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "end_combat",
-        "description": "End the current combat encounter and clear the tracker from all players' UIs.",
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
         "name": "upsert_npc",
         "description": (
             "Add a new NPC to the campaign registry or update an existing one. "
@@ -466,6 +457,24 @@ TOOLS: list[dict] = [
         },
     },
 ]
+
+# Tools only included when a combat encounter is active.
+# Omitting these outside combat saves ~300 input tokens per turn.
+TOOLS_COMBAT: list[dict] = [
+    {
+        "name": "next_turn",
+        "description": "Advance to the next combatant in the initiative order.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "end_combat",
+        "description": "End the current combat encounter and clear the tracker from all players' UIs.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+]
+
+# Backwards-compat alias used by tests that reference TOOLS directly.
+TOOLS = TOOLS_BASE + TOOLS_COMBAT
 
 
 # ---------------------------------------------------------------------------
@@ -723,6 +732,7 @@ class DungeonMaster:
         message_history: list[dict],
         new_message: str,
         on_tool_use: Callable,
+        in_combat: bool = False,
     ) -> AsyncGenerator[str, None]:
         """
         Stream the DM's response, handling tool use in a multi-turn loop.
@@ -772,7 +782,7 @@ class DungeonMaster:
                 model="claude-sonnet-4-6",
                 max_tokens=2048,
                 system=system,
-                tools=TOOLS,
+                tools=TOOLS_BASE + (TOOLS_COMBAT if in_combat else []),
                 messages=messages,
             ) as stream:
                 # Stream text to caller, collect all blocks

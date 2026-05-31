@@ -1312,7 +1312,7 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         pass
-    except Exception as exc:
+    except Exception:
         # Catch-all so the finally block always runs; log details server-side
         # but send a generic message so internal state isn't leaked to clients.
         import logging

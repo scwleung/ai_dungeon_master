@@ -26,6 +26,7 @@ returned in the campaign response).
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import uuid
 from datetime import datetime, timezone
@@ -36,6 +37,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from anthropic import AsyncAnthropic
 
@@ -65,9 +67,31 @@ _anthropic_client = AsyncAnthropic()
 # ---------------------------------------------------------------------------
 
 
-def _campaign_to_response(campaign: Campaign) -> CampaignResponse:
+def _session_count_sq(campaign_id_col) -> "ColumnElement":
+    """Scalar subquery: number of sessions for a campaign column expression."""
+    return (
+        select(func.count())
+        .where(GameSession.campaign_id == campaign_id_col)
+        .correlate_except(GameSession)
+        .scalar_subquery()
+    )
+
+
+def _msg_count_sq(session_id_col) -> "ColumnElement":
+    """Scalar subquery: number of messages for a session column expression."""
+    return (
+        select(func.count())
+        .where(SessionMessage.session_id == session_id_col)
+        .correlate_except(SessionMessage)
+        .scalar_subquery()
+    )
+
+
+def _campaign_to_response(campaign: Campaign, session_count: int = 0) -> CampaignResponse:
     """Convert a Campaign ORM object to a CampaignResponse Pydantic model."""
-    return CampaignResponse.model_validate(campaign)
+    resp = CampaignResponse.model_validate(campaign)
+    resp.session_count = session_count
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -79,13 +103,11 @@ def _campaign_to_response(campaign: Campaign) -> CampaignResponse:
 async def list_campaigns(response: Response, db: AsyncSession = Depends(get_db)):
     """Return all campaigns ordered by creation date descending."""
     response.headers["Cache-Control"] = "public, max-age=10"
+    count_sq = _session_count_sq(Campaign.id).label("session_count")
     result = await db.execute(
-        select(Campaign)
-        .options(selectinload(Campaign.sessions))
-        .order_by(Campaign.created_at.desc())
+        select(Campaign, count_sq).order_by(Campaign.created_at.desc())
     )
-    campaigns = result.scalars().all()
-    return [_campaign_to_response(c) for c in campaigns]
+    return [_campaign_to_response(c, cnt) for c, cnt in result.all()]
 
 
 @router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
@@ -111,33 +133,25 @@ async def create_campaign(
     )
     db.add(campaign)
     await db.flush()
-
-    # Reload with sessions relationship for accurate session_count
-    result = await db.execute(
-        select(Campaign)
-        .options(selectinload(Campaign.sessions))
-        .where(Campaign.id == campaign.id)
-    )
-    campaign = result.scalar_one()
-    return _campaign_to_response(campaign)
+    return _campaign_to_response(campaign, session_count=0)
 
 
 @router.get("/{campaign_id}", response_model=CampaignResponse)
 async def get_campaign(campaign_id: str, response: Response, db: AsyncSession = Depends(get_db)):
     """Return a single campaign by ID."""
     response.headers["Cache-Control"] = "public, max-age=10"
+    count_sq = _session_count_sq(campaign_id).label("session_count")
     result = await db.execute(
-        select(Campaign)
-        .options(selectinload(Campaign.sessions))
-        .where(Campaign.id == campaign_id)
+        select(Campaign, count_sq).where(Campaign.id == campaign_id)
     )
-    campaign = result.scalar_one_or_none()
-    if campaign is None:
+    row = result.one_or_none()
+    if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Campaign {campaign_id!r} not found",
         )
-    return _campaign_to_response(campaign)
+    campaign, sess_count = row
+    return _campaign_to_response(campaign, sess_count)
 
 
 class CampaignUpdate(BaseModel):
@@ -159,17 +173,17 @@ async def update_campaign(
     _: None = Depends(require_campaign_access),
 ):
     """Update campaign name and/or description."""
+    count_sq = _session_count_sq(campaign_id).label("session_count")
     result = await db.execute(
-        select(Campaign)
-        .options(selectinload(Campaign.sessions))
-        .where(Campaign.id == campaign_id)
+        select(Campaign, count_sq).where(Campaign.id == campaign_id)
     )
-    campaign = result.scalar_one_or_none()
-    if campaign is None:
+    row = result.one_or_none()
+    if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Campaign {campaign_id!r} not found",
         )
+    campaign, sess_count = row
 
     if payload.name is not None:
         campaign.name = payload.name
@@ -177,15 +191,7 @@ async def update_campaign(
         campaign.description = payload.description
 
     await db.flush()
-
-    # Reload to pick up any relationship changes
-    result = await db.execute(
-        select(Campaign)
-        .options(selectinload(Campaign.sessions))
-        .where(Campaign.id == campaign_id)
-    )
-    campaign = result.scalar_one()
-    return _campaign_to_response(campaign)
+    return _campaign_to_response(campaign, sess_count)
 
 
 @router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -226,27 +232,19 @@ async def list_sessions(campaign_id: str, db: AsyncSession = Depends(get_db)):
             detail=f"Campaign {campaign_id!r} not found",
         )
 
-    # Use a scalar subquery for message count so we don't load every message row
-    # just to compute a count for the list view.
-    msg_count_sq = (
-        select(func.count())
-        .where(SessionMessage.session_id == GameSession.id)
-        .correlate(GameSession)
-        .scalar_subquery()
-        .label("message_count")
-    )
+    count_sq = _msg_count_sq(GameSession.id).label("message_count")
     result = await db.execute(
-        select(GameSession, msg_count_sq)
+        select(GameSession, count_sq)
         .where(GameSession.campaign_id == campaign_id)
         .order_by(GameSession.started_at.desc())
     )
-    rows = result.all()
-    responses = []
-    for sess, msg_count in rows:
-        resp = SessionResponse.model_validate(sess)
-        resp.message_count = msg_count
-        responses.append(resp)
-    return responses
+
+    def _to_session_resp(sess: GameSession, cnt: int) -> SessionResponse:
+        r = SessionResponse.model_validate(sess)
+        r.message_count = cnt
+        return r
+
+    return [_to_session_resp(s, c) for s, c in result.all()]
 
 
 @router.post(
@@ -1135,7 +1133,12 @@ async def roll_table(campaign_id: str, table_id: str, db: AsyncSession = Depends
 
 
 @router.delete("/{campaign_id}/tables/{table_id}")
-async def delete_table(campaign_id: str, table_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_table(
+    campaign_id: str,
+    table_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: Campaign = Depends(require_campaign_access),
+):
     """Delete a random table from a campaign."""
     campaign = await db.get(Campaign, campaign_id)
     if not campaign:
@@ -1197,7 +1200,7 @@ async def admin_backup(
     """Return a full backup of all campaigns, sessions, and characters."""
     import os
     expected = os.getenv("ADMIN_KEY", "")
-    if not expected or x_admin_key != expected:
+    if not expected or not hmac.compare_digest(expected, x_admin_key):
         raise HTTPException(status_code=403, detail="Invalid or missing X-Admin-Key header")
     results = await asyncio.gather(
         db.execute(select(Campaign)),

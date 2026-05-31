@@ -98,7 +98,7 @@ async def test_delete_table(client):
     table = await make_table(client, campaign)
     table_id = table["id"]
 
-    r = await client.delete(f"/api/campaigns/{campaign['id']}/tables/{table_id}")
+    r = await client.delete(f"/api/campaigns/{campaign['id']}/tables/{table_id}", headers=auth(campaign))
     assert r.status_code == 200
 
     r = await client.get(f"/api/campaigns/{campaign['id']}/tables")

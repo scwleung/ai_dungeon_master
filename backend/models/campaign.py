@@ -208,7 +208,6 @@ class CampaignResponse(BaseModel):
                     world_state = json.loads(world_state)
                 except (json.JSONDecodeError, TypeError):
                     world_state = {}
-            sessions = getattr(obj, "sessions", []) or []
             return {
                 "id": obj.id,
                 "name": obj.name,
@@ -217,7 +216,7 @@ class CampaignResponse(BaseModel):
                 "created_at": obj.created_at,
                 "world_state": world_state,
                 "access_code": obj.access_code,
-                "session_count": len(sessions),
+                "session_count": 0,  # overridden by router via scalar subquery
             }
         # Handle dict
         if isinstance(values, dict):

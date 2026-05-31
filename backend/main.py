@@ -40,6 +40,7 @@ Context management:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 import random
@@ -187,6 +188,8 @@ dm = DungeonMaster()
 SUMMARY_THRESHOLD = 30
 # Keep this many of the most recent messages verbatim after summarisation.
 SUMMARY_KEEP_RECENT = 20
+# Maximum base64 image size accepted from clients (~1.5 MB decoded).
+_MAX_DICE_IMAGE_B64 = 2_000_000
 
 
 # ---------------------------------------------------------------------------
@@ -633,7 +636,9 @@ async def websocket_endpoint(
                      grants read-only spectator access.  An incorrect non-empty
                      code is rejected with close code 4403.
     """
-    await session_hub.connect(ws, session_id, player_id)
+    # Accept the raw WebSocket first so we can send a close code on failure.
+    # Do NOT register in the room yet — that happens only after auth passes.
+    await ws.accept()
 
     # Look up which campaign this session belongs to and verify access code
     campaign_id: Optional[str] = None
@@ -653,14 +658,15 @@ async def websocket_endpoint(
                 campaign_code = db_campaign.access_code or ""
                 if campaign_code and not access_code:
                     is_spectator_conn = True
-                elif campaign_code and access_code != campaign_code:
-                    session_hub.disconnect(ws)
+                elif campaign_code and not hmac.compare_digest(campaign_code, access_code):
                     await ws.close(code=4403, reason="Invalid access code")
                     return
                 elif not campaign_code and access_code:
                     # Campaign has no code; any provided code is accepted
                     pass
 
+    # Auth passed — register this socket in the room now.
+    session_hub.register(ws, session_id, player_id)
     if is_spectator_conn:
         session_hub.mark_spectator(ws)
 
@@ -1063,6 +1069,11 @@ async def websocket_endpoint(
                         ws, {"type": "error", "message": "No image data provided"}
                     )
                     continue
+                if len(frame_b64) > _MAX_DICE_IMAGE_B64:
+                    await session_hub.send_to_socket(
+                        ws, {"type": "error", "message": "Image too large"}
+                    )
+                    continue
 
                 try:
                     detected = await dm.detect_dice(frame_b64)
@@ -1302,10 +1313,13 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         pass
     except Exception as exc:
-        # Catch-all so the finally block always runs
+        # Catch-all so the finally block always runs; log details server-side
+        # but send a generic message so internal state isn't leaked to clients.
+        import logging
+        logging.getLogger(__name__).exception("Unhandled WebSocket error for session %s", session_id)
         try:
             await session_hub.send_to_socket(
-                ws, {"type": "error", "message": f"Unexpected error: {exc}"}
+                ws, {"type": "error", "message": "An internal error occurred. Please reconnect."}
             )
         except Exception:
             pass

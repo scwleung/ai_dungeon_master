@@ -476,6 +476,9 @@ TOOLS_COMBAT: list[dict] = [
 # Backwards-compat alias used by tests that reference TOOLS directly.
 TOOLS = TOOLS_BASE + TOOLS_COMBAT
 
+# Maximum NPCs shown in the system-prompt context window (most-recent kept).
+_NPC_CONTEXT_LIMIT = 25
+
 
 # ---------------------------------------------------------------------------
 # DungeonMaster class
@@ -576,8 +579,6 @@ class DungeonMaster:
             quest_section=self._format_quests(campaign),
         )
 
-    _NPC_CONTEXT_LIMIT = 25
-
     def _format_npcs(self, campaign) -> str:
         """Render the NPC registry for the system prompt."""
         raw = getattr(campaign, "npcs", None)
@@ -590,10 +591,10 @@ class DungeonMaster:
         if not npcs:
             return "  (No NPCs registered yet)"
         total = len(npcs)
-        shown = npcs[-self._NPC_CONTEXT_LIMIT:] if total > self._NPC_CONTEXT_LIMIT else npcs
+        shown = npcs[-_NPC_CONTEXT_LIMIT:] if total > _NPC_CONTEXT_LIMIT else npcs
         lines: list[str] = []
-        if total > self._NPC_CONTEXT_LIMIT:
-            lines.append(f"  ({total - self._NPC_CONTEXT_LIMIT} earlier NPCs omitted — ask to recall them by name)")
+        if total > _NPC_CONTEXT_LIMIT:
+            lines.append(f"  ({total - _NPC_CONTEXT_LIMIT} earlier NPCs omitted — ask to recall them by name)")
         for npc in shown:
             faction = f" [{npc.get('faction')}]" if npc.get("faction") else ""
             location = f" @ {npc.get('location')}" if npc.get("location") else ""

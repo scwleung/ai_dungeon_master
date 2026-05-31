@@ -73,7 +73,14 @@ class SessionHub:
             player_id: The player identifier for this connection.
         """
         await ws.accept()
+        self.register(ws, session_id, player_id)
 
+    def register(self, ws: WebSocket, session_id: str, player_id: str) -> None:
+        """Register an already-accepted WebSocket in the session room.
+
+        Call this after ``ws.accept()`` and after authentication has passed,
+        so that unauthenticated sockets are never added to room sets.
+        """
         if session_id not in self._rooms:
             self._rooms[session_id] = set()
         self._rooms[session_id].add(ws)

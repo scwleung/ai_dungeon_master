@@ -257,6 +257,8 @@ class SessionResponse(BaseModel):
     objects regardless of whether the underlying ORM field is a JSON string
     or an already-decoded list.  ``session_summary`` holds the condensed
     narrative of messages that have been rolled out of the active window.
+    ``message_count`` is the total number of messages; list endpoints populate
+    this via a scalar subquery and omit full message bodies for efficiency.
     """
 
     id: str
@@ -264,6 +266,7 @@ class SessionResponse(BaseModel):
     started_at: datetime
     ended_at: Optional[datetime] = None
     messages: list[NarrativeMessage] = []
+    message_count: int = 0
     session_summary: Optional[str] = None
     notes: Optional[str] = None
 
@@ -304,6 +307,7 @@ class SessionResponse(BaseModel):
                 "started_at": obj.started_at,
                 "ended_at": obj.ended_at,
                 "messages": parsed,
+                "message_count": len(parsed),
                 "session_summary": getattr(obj, "session_summary", None),
                 "notes": getattr(obj, "notes", None),
             }
@@ -314,4 +318,6 @@ class SessionResponse(BaseModel):
                     values["messages"] = json.loads(raw)
                 except (json.JSONDecodeError, TypeError):
                     values["messages"] = []
+            if "message_count" not in values:
+                values["message_count"] = len(values.get("messages") or [])
         return values

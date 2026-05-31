@@ -576,6 +576,8 @@ class DungeonMaster:
             quest_section=self._format_quests(campaign),
         )
 
+    _NPC_CONTEXT_LIMIT = 25
+
     def _format_npcs(self, campaign) -> str:
         """Render the NPC registry for the system prompt."""
         raw = getattr(campaign, "npcs", None)
@@ -587,8 +589,12 @@ class DungeonMaster:
             return "  (NPC data unavailable)"
         if not npcs:
             return "  (No NPCs registered yet)"
+        total = len(npcs)
+        shown = npcs[-self._NPC_CONTEXT_LIMIT:] if total > self._NPC_CONTEXT_LIMIT else npcs
         lines: list[str] = []
-        for npc in npcs:
+        if total > self._NPC_CONTEXT_LIMIT:
+            lines.append(f"  ({total - self._NPC_CONTEXT_LIMIT} earlier NPCs omitted — ask to recall them by name)")
+        for npc in shown:
             faction = f" [{npc.get('faction')}]" if npc.get("faction") else ""
             location = f" @ {npc.get('location')}" if npc.get("location") else ""
             attitude = npc.get("attitude", "unknown")
@@ -748,10 +754,11 @@ class DungeonMaster:
             Text chunks as they arrive from the API.
         """
         # Two-block system prompt: static instructions are cached permanently;
-        # dynamic campaign context is refreshed each turn (NPCs/quests change).
+        # dynamic campaign context is also cached — it's stable across consecutive
+        # turns where no tool calls mutate NPCs/quests/world state.
         system = [
             {"type": "text", "text": _DM_STATIC_SYSTEM, "cache_control": {"type": "ephemeral"}},
-            {"type": "text", "text": self._build_dynamic_context(campaign, characters)},
+            {"type": "text", "text": self._build_dynamic_context(campaign, characters), "cache_control": {"type": "ephemeral"}},
         ]
 
         # Build messages list, caching the conversation prefix at the last

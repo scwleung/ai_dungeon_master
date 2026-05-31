@@ -33,7 +33,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -226,14 +226,27 @@ async def list_sessions(campaign_id: str, db: AsyncSession = Depends(get_db)):
             detail=f"Campaign {campaign_id!r} not found",
         )
 
+    # Use a scalar subquery for message count so we don't load every message row
+    # just to compute a count for the list view.
+    msg_count_sq = (
+        select(func.count())
+        .where(SessionMessage.session_id == GameSession.id)
+        .correlate(GameSession)
+        .scalar_subquery()
+        .label("message_count")
+    )
     result = await db.execute(
-        select(GameSession)
-        .options(selectinload(GameSession.msg_objects))
+        select(GameSession, msg_count_sq)
         .where(GameSession.campaign_id == campaign_id)
         .order_by(GameSession.started_at.desc())
     )
-    sessions = result.scalars().all()
-    return [SessionResponse.model_validate(s) for s in sessions]
+    rows = result.all()
+    responses = []
+    for sess, msg_count in rows:
+        resp = SessionResponse.model_validate(sess)
+        resp.message_count = msg_count
+        responses.append(resp)
+    return responses
 
 
 @router.post(

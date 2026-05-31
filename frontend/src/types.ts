@@ -30,6 +30,8 @@ export interface Session {
   ended_at?: string
   /** Ordered list of narrative messages exchanged during this session. */
   messages: NarrativeMessage[]
+  /** Total message count; populated by the list endpoint via a DB subquery. */
+  message_count?: number
 }
 
 /** A single narrative entry in the session log, authored by the DM, a player, or the system. */

@@ -96,7 +96,14 @@ elif [[ "${DB_CHOICE}" == "B" ]]; then
       --volume-size 10
   fi
   info "Attaching Postgres to the app (sets DATABASE_URL automatically)..."
-  flyctl postgres attach "${PG_APP}" --app "${APP_NAME}" || warn "Already attached."
+  if ! flyctl postgres attach "${PG_APP}" --app "${APP_NAME}" 2>&1 | tee /tmp/fly_attach.log; then
+    if grep -qi "already" /tmp/fly_attach.log; then
+      warn "Postgres already attached — skipping."
+    else
+      cat /tmp/fly_attach.log >&2
+      error "Failed to attach Postgres. DATABASE_URL will not be set. Aborting."
+    fi
+  fi
   DB_URL=""   # set by attach
   info "PostgreSQL attached. DATABASE_URL will be set automatically."
 else

@@ -208,7 +208,6 @@ class CampaignResponse(BaseModel):
                     world_state = json.loads(world_state)
                 except (json.JSONDecodeError, TypeError):
                     world_state = {}
-            sessions = getattr(obj, "sessions", []) or []
             return {
                 "id": obj.id,
                 "name": obj.name,
@@ -217,7 +216,7 @@ class CampaignResponse(BaseModel):
                 "created_at": obj.created_at,
                 "world_state": world_state,
                 "access_code": obj.access_code,
-                "session_count": len(sessions),
+                "session_count": 0,  # overridden by router via scalar subquery
             }
         # Handle dict
         if isinstance(values, dict):
@@ -257,6 +256,8 @@ class SessionResponse(BaseModel):
     objects regardless of whether the underlying ORM field is a JSON string
     or an already-decoded list.  ``session_summary`` holds the condensed
     narrative of messages that have been rolled out of the active window.
+    ``message_count`` is the total number of messages; list endpoints populate
+    this via a scalar subquery and omit full message bodies for efficiency.
     """
 
     id: str
@@ -264,6 +265,7 @@ class SessionResponse(BaseModel):
     started_at: datetime
     ended_at: Optional[datetime] = None
     messages: list[NarrativeMessage] = []
+    message_count: int = 0
     session_summary: Optional[str] = None
     notes: Optional[str] = None
 
@@ -278,7 +280,7 @@ class SessionResponse(BaseModel):
             # Only use the normalised rows when already eagerly loaded — never
             # trigger a lazy select inside a Pydantic validator (no async ctx).
             msg_objects = obj.__dict__.get("msg_objects")
-            if msg_objects:
+            if msg_objects is not None:
                 parsed = [
                     {
                         "id": m.id,
@@ -304,6 +306,7 @@ class SessionResponse(BaseModel):
                 "started_at": obj.started_at,
                 "ended_at": obj.ended_at,
                 "messages": parsed,
+                "message_count": len(parsed),
                 "session_summary": getattr(obj, "session_summary", None),
                 "notes": getattr(obj, "notes", None),
             }
@@ -314,4 +317,6 @@ class SessionResponse(BaseModel):
                     values["messages"] = json.loads(raw)
                 except (json.JSONDecodeError, TypeError):
                     values["messages"] = []
+            if "message_count" not in values:
+                values["message_count"] = len(values.get("messages") or [])
         return values

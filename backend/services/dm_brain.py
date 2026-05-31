@@ -476,6 +476,9 @@ TOOLS_COMBAT: list[dict] = [
 # Backwards-compat alias used by tests that reference TOOLS directly.
 TOOLS = TOOLS_BASE + TOOLS_COMBAT
 
+# Maximum NPCs shown in the system-prompt context window (most-recent kept).
+_NPC_CONTEXT_LIMIT = 25
+
 
 # ---------------------------------------------------------------------------
 # DungeonMaster class
@@ -587,8 +590,12 @@ class DungeonMaster:
             return "  (NPC data unavailable)"
         if not npcs:
             return "  (No NPCs registered yet)"
+        total = len(npcs)
+        shown = npcs[-_NPC_CONTEXT_LIMIT:] if total > _NPC_CONTEXT_LIMIT else npcs
         lines: list[str] = []
-        for npc in npcs:
+        if total > _NPC_CONTEXT_LIMIT:
+            lines.append(f"  ({total - _NPC_CONTEXT_LIMIT} earlier NPCs omitted — ask to recall them by name)")
+        for npc in shown:
             faction = f" [{npc.get('faction')}]" if npc.get("faction") else ""
             location = f" @ {npc.get('location')}" if npc.get("location") else ""
             attitude = npc.get("attitude", "unknown")
@@ -732,7 +739,7 @@ class DungeonMaster:
         message_history: list[dict],
         new_message: str,
         on_tool_use: Callable,
-        in_combat: bool = False,
+        in_combat: bool | Callable[[], bool] = False,
     ) -> AsyncGenerator[str, None]:
         """
         Stream the DM's response, handling tool use in a multi-turn loop.
@@ -748,10 +755,11 @@ class DungeonMaster:
             Text chunks as they arrive from the API.
         """
         # Two-block system prompt: static instructions are cached permanently;
-        # dynamic campaign context is refreshed each turn (NPCs/quests change).
+        # dynamic campaign context is also cached — it's stable across consecutive
+        # turns where no tool calls mutate NPCs/quests/world state.
         system = [
             {"type": "text", "text": _DM_STATIC_SYSTEM, "cache_control": {"type": "ephemeral"}},
-            {"type": "text", "text": self._build_dynamic_context(campaign, characters)},
+            {"type": "text", "text": self._build_dynamic_context(campaign, characters), "cache_control": {"type": "ephemeral"}},
         ]
 
         # Build messages list, caching the conversation prefix at the last
@@ -765,8 +773,10 @@ class DungeonMaster:
             elif isinstance(content, list) and content:
                 cached_content = list(content)
                 last_block = dict(cached_content[-1])  # type: ignore[index]
-                last_block["cache_control"] = {"type": "ephemeral"}
-                cached_content[-1] = last_block  # type: ignore[index]
+                # Only text blocks accept cache_control; tool_result blocks do not
+                if last_block.get("type") == "text":
+                    last_block["cache_control"] = {"type": "ephemeral"}
+                    cached_content[-1] = last_block  # type: ignore[index]
             else:
                 cached_content = content
             messages[-1] = {**last, "content": cached_content}
@@ -778,11 +788,12 @@ class DungeonMaster:
             tool_use_blocks: list[dict] = []
             stop_reason: str = "end_turn"
 
+            _combat_active = in_combat() if callable(in_combat) else in_combat
             async with self.client.messages.stream(
                 model="claude-sonnet-4-6",
                 max_tokens=2048,
                 system=system,
-                tools=TOOLS_BASE + (TOOLS_COMBAT if in_combat else []),
+                tools=TOOLS_BASE + (TOOLS_COMBAT if _combat_active else []),
                 messages=messages,
             ) as stream:
                 # Stream text to caller, collect all blocks

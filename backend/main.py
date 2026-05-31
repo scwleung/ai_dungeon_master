@@ -40,6 +40,7 @@ Context management:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 import random
@@ -187,6 +188,8 @@ dm = DungeonMaster()
 SUMMARY_THRESHOLD = 30
 # Keep this many of the most recent messages verbatim after summarisation.
 SUMMARY_KEEP_RECENT = 20
+# Maximum base64 image size accepted from clients (~1.5 MB decoded).
+_MAX_DICE_IMAGE_B64 = 2_000_000
 
 
 # ---------------------------------------------------------------------------
@@ -197,29 +200,29 @@ SUMMARY_KEEP_RECENT = 20
 async def _save_message_to_db(
     session_id: str,
     role: str,
-    text: str,
+    message_text: str,
     player_name: Optional[str] = None,
 ) -> None:
     """Insert a single message row into session_messages (O(1) write)."""
     async with AsyncSessionLocal() as db:
-        # Determine next sequence number for this session
-        seq_result = await db.execute(
-            select(func.coalesce(func.max(SessionMessage.seq), -1)).where(
-                SessionMessage.session_id == session_id
-            )
-        )
-        next_seq: int = (seq_result.scalar() or -1) + 1
-
-        db.add(
-            SessionMessage(
-                id=str(uuid.uuid4()),
-                session_id=session_id,
-                role=role,
-                player_name=player_name,
-                text=text,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                seq=next_seq,
-            )
+        # Atomic INSERT: seq is computed in the same statement as the insert,
+        # preventing duplicate seq values under concurrent writes.
+        await db.execute(
+            text(
+                "INSERT INTO session_messages "
+                "(id, session_id, role, player_name, text, timestamp, seq) "
+                "VALUES (:msg_id, :session_id, :role, :player_name, :text, :timestamp, "
+                "COALESCE((SELECT MAX(s2.seq) FROM session_messages s2 "
+                "WHERE s2.session_id = :session_id), -1) + 1)"
+            ),
+            {
+                "msg_id": str(uuid.uuid4()),
+                "session_id": session_id,
+                "role": role,
+                "player_name": player_name,
+                "text": message_text,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
         )
         await db.commit()
 
@@ -633,7 +636,9 @@ async def websocket_endpoint(
                      grants read-only spectator access.  An incorrect non-empty
                      code is rejected with close code 4403.
     """
-    await session_hub.connect(ws, session_id, player_id)
+    # Accept the raw WebSocket first so we can send a close code on failure.
+    # Do NOT register in the room yet — that happens only after auth passes.
+    await ws.accept()
 
     # Look up which campaign this session belongs to and verify access code
     campaign_id: Optional[str] = None
@@ -653,14 +658,15 @@ async def websocket_endpoint(
                 campaign_code = db_campaign.access_code or ""
                 if campaign_code and not access_code:
                     is_spectator_conn = True
-                elif campaign_code and access_code != campaign_code:
-                    session_hub.disconnect(ws)
+                elif campaign_code and not hmac.compare_digest(campaign_code, access_code):
                     await ws.close(code=4403, reason="Invalid access code")
                     return
                 elif not campaign_code and access_code:
                     # Campaign has no code; any provided code is accepted
                     pass
 
+    # Auth passed — register this socket in the room now.
+    session_hub.register(ws, session_id, player_id)
     if is_spectator_conn:
         session_hub.mark_spectator(ws)
 
@@ -805,6 +811,7 @@ async def websocket_endpoint(
             if not room_id:
                 return "Missing room_id for reveal_area tool."
             message, explored = await _reveal_area_in_db(campaign_id, room_id)
+            _invalidate_campaign_cache(campaign_id)
             if explored:
                 await session_hub.broadcast(
                     session_id,
@@ -954,12 +961,12 @@ async def websocket_endpoint(
                     )
                     sess_obj = sess_result.scalar_one_or_none()
                     if sess_obj:
-                        try:
-                            existing_msgs = json.loads(sess_obj.messages or "[]")
-                        except Exception:
-                            existing_msgs = []
+                        msg_count_result = await recap_db.execute(
+                            select(func.count()).where(SessionMessage.session_id == session_id)
+                        )
+                        msg_count = msg_count_result.scalar() or 0
                         # Fresh session (no messages yet) and has a prior session summary
-                        if not existing_msgs and sess_obj.session_summary and not is_spectator_conn:
+                        if msg_count == 0 and sess_obj.session_summary and not is_spectator_conn:
                             await session_hub.send_to_socket(ws, {
                                 "type": "system",
                                 "text": f"📜 Previously in your adventure: {sess_obj.session_summary}",
@@ -1024,7 +1031,7 @@ async def websocket_endpoint(
                         message_history=history,
                         new_message=action_text,
                         on_tool_use=on_tool_use,
-                        in_combat=bool(game_state_manager._combat.get(session_id)),
+                        in_combat=lambda: bool(game_state_manager._combat.get(session_id)),
                     ):
                         full_response_parts.append(chunk)
                         yield chunk
@@ -1060,6 +1067,11 @@ async def websocket_endpoint(
                 if not frame_b64:
                     await session_hub.send_to_socket(
                         ws, {"type": "error", "message": "No image data provided"}
+                    )
+                    continue
+                if len(frame_b64) > _MAX_DICE_IMAGE_B64:
+                    await session_hub.send_to_socket(
+                        ws, {"type": "error", "message": "Image too large"}
                     )
                     continue
 
@@ -1300,11 +1312,14 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         pass
-    except Exception as exc:
-        # Catch-all so the finally block always runs
+    except Exception:
+        # Catch-all so the finally block always runs; log details server-side
+        # but send a generic message so internal state isn't leaked to clients.
+        import logging
+        logging.getLogger(__name__).exception("Unhandled WebSocket error for session %s", session_id)
         try:
             await session_hub.send_to_socket(
-                ws, {"type": "error", "message": f"Unexpected error: {exc}"}
+                ws, {"type": "error", "message": "An internal error occurred. Please reconnect."}
             )
         except Exception:
             pass

@@ -20,7 +20,7 @@ def auth(campaign: dict) -> dict:
 async def make_table(client: AsyncClient, campaign: dict, body: dict = None) -> dict:
     if body is None:
         body = {"name": "Encounter Table", "dice": "d6", "entries": ["Goblin", "Orc", "Troll"]}
-    r = await client.post(f"/api/campaigns/{campaign['id']}/tables", json=body)
+    r = await client.post(f"/api/campaigns/{campaign['id']}/tables", json=body, headers=auth(campaign))
     assert r.status_code == 200
     return r.json()
 
@@ -42,7 +42,7 @@ async def test_create_table(client):
     """POST creates a table and returns it with an id."""
     campaign = await make_campaign(client)
     body = {"name": "Loot Table", "dice": "d8", "entries": ["Gold", "Sword", "Potion"]}
-    r = await client.post(f"/api/campaigns/{campaign['id']}/tables", json=body)
+    r = await client.post(f"/api/campaigns/{campaign['id']}/tables", json=body, headers=auth(campaign))
     assert r.status_code == 200
     data = r.json()
     assert "id" in data
@@ -56,7 +56,7 @@ async def test_create_table_missing_name(client):
     """POST without a name field defaults to 'Unnamed Table'."""
     campaign = await make_campaign(client)
     body = {"dice": "d6", "entries": ["Entry A", "Entry B"]}
-    r = await client.post(f"/api/campaigns/{campaign['id']}/tables", json=body)
+    r = await client.post(f"/api/campaigns/{campaign['id']}/tables", json=body, headers=auth(campaign))
     assert r.status_code == 200
     assert r.json()["name"] == "Unnamed Table"
 
@@ -98,7 +98,7 @@ async def test_delete_table(client):
     table = await make_table(client, campaign)
     table_id = table["id"]
 
-    r = await client.delete(f"/api/campaigns/{campaign['id']}/tables/{table_id}")
+    r = await client.delete(f"/api/campaigns/{campaign['id']}/tables/{table_id}", headers=auth(campaign))
     assert r.status_code == 200
 
     r = await client.get(f"/api/campaigns/{campaign['id']}/tables")

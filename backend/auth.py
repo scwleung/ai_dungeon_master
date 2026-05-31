@@ -12,6 +12,8 @@ Dependency functions:
     require_character_access  — verifies code against a campaign via character_id
 """
 
+import hmac
+
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,7 +37,7 @@ async def require_campaign_access(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Campaign {campaign_id!r} not found",
         )
-    if campaign.access_code != x_access_code:
+    if not hmac.compare_digest(campaign.access_code or "", x_access_code):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid access code",
@@ -62,7 +64,7 @@ async def require_session_access(
         select(Campaign).where(Campaign.id == session.campaign_id)
     )
     campaign = campaign_result.scalar_one_or_none()
-    if campaign is None or campaign.access_code != x_access_code:
+    if campaign is None or not hmac.compare_digest(campaign.access_code or "", x_access_code):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid access code",
@@ -88,7 +90,7 @@ async def require_character_access(
         select(Campaign).where(Campaign.id == char.campaign_id)
     )
     campaign = campaign_result.scalar_one_or_none()
-    if campaign is None or campaign.access_code != x_access_code:
+    if campaign is None or not hmac.compare_digest(campaign.access_code or "", x_access_code):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid access code",

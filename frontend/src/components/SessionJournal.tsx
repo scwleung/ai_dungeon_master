@@ -28,7 +28,7 @@ function JournalEntry({ session }: { session: Session & { session_summary: strin
         <div className="journal-entry-meta">
           <span className="journal-date">{formatDate(session.started_at)}</span>
           <span className="journal-msg-count">
-            {session.messages.length} message{session.messages.length !== 1 ? 's' : ''}
+            {(session.message_count ?? session.messages.length)} message{(session.message_count ?? session.messages.length) !== 1 ? 's' : ''}
           </span>
         </div>
         <span className={`journal-chevron ${expanded ? 'open' : ''}`}>▾</span>

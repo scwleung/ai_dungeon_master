@@ -101,7 +101,7 @@ function SessionRow({ session }: { session: Session }) {
       </div>
       <div className="session-row-right">
         <span className="session-msgs">
-          {session.messages.length} message{session.messages.length !== 1 ? 's' : ''}
+          {(session.message_count ?? session.messages.length)} message{(session.message_count ?? session.messages.length) !== 1 ? 's' : ''}
         </span>
         {session.ended_at && (
           <span className="session-ended">Ended {formatShortDate(session.ended_at)}</span>

@@ -426,6 +426,7 @@ async def update_session_notes(
     session_id: str,
     payload: SessionNotesUpdate,
     db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(require_session_access),
 ):
     """Replace the collaborative notes for a session."""
     result = await db.execute(select(GameSession).where(GameSession.id == session_id))
@@ -489,6 +490,7 @@ async def update_session_pins(
     session_id: str,
     payload: PinsUpdate,
     db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(require_session_access),
 ):
     """Replace the pinned notes for a session and broadcast to all players."""
     result = await db.execute(select(GameSession).where(GameSession.id == session_id))
@@ -1078,7 +1080,12 @@ async def get_tables(campaign_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{campaign_id}/tables")
-async def create_table(campaign_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+async def create_table(
+    campaign_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _auth: Campaign = Depends(require_campaign_access),
+):
     """Create a new random table for a campaign."""
     campaign = await db.get(Campaign, campaign_id)
     if not campaign:

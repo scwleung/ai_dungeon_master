@@ -197,29 +197,29 @@ SUMMARY_KEEP_RECENT = 20
 async def _save_message_to_db(
     session_id: str,
     role: str,
-    text: str,
+    message_text: str,
     player_name: Optional[str] = None,
 ) -> None:
     """Insert a single message row into session_messages (O(1) write)."""
     async with AsyncSessionLocal() as db:
-        # Determine next sequence number for this session
-        seq_result = await db.execute(
-            select(func.coalesce(func.max(SessionMessage.seq), -1)).where(
-                SessionMessage.session_id == session_id
-            )
-        )
-        next_seq: int = (seq_result.scalar() or -1) + 1
-
-        db.add(
-            SessionMessage(
-                id=str(uuid.uuid4()),
-                session_id=session_id,
-                role=role,
-                player_name=player_name,
-                text=text,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                seq=next_seq,
-            )
+        # Atomic INSERT: seq is computed in the same statement as the insert,
+        # preventing duplicate seq values under concurrent writes.
+        await db.execute(
+            text(
+                "INSERT INTO session_messages "
+                "(id, session_id, role, player_name, text, timestamp, seq) "
+                "VALUES (:msg_id, :session_id, :role, :player_name, :text, :timestamp, "
+                "COALESCE((SELECT MAX(s2.seq) FROM session_messages s2 "
+                "WHERE s2.session_id = :session_id), -1) + 1)"
+            ),
+            {
+                "msg_id": str(uuid.uuid4()),
+                "session_id": session_id,
+                "role": role,
+                "player_name": player_name,
+                "text": message_text,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
         )
         await db.commit()
 
@@ -805,6 +805,7 @@ async def websocket_endpoint(
             if not room_id:
                 return "Missing room_id for reveal_area tool."
             message, explored = await _reveal_area_in_db(campaign_id, room_id)
+            _invalidate_campaign_cache(campaign_id)
             if explored:
                 await session_hub.broadcast(
                     session_id,
@@ -954,12 +955,12 @@ async def websocket_endpoint(
                     )
                     sess_obj = sess_result.scalar_one_or_none()
                     if sess_obj:
-                        try:
-                            existing_msgs = json.loads(sess_obj.messages or "[]")
-                        except Exception:
-                            existing_msgs = []
+                        msg_count_result = await recap_db.execute(
+                            select(func.count()).where(SessionMessage.session_id == session_id)
+                        )
+                        msg_count = msg_count_result.scalar() or 0
                         # Fresh session (no messages yet) and has a prior session summary
-                        if not existing_msgs and sess_obj.session_summary and not is_spectator_conn:
+                        if msg_count == 0 and sess_obj.session_summary and not is_spectator_conn:
                             await session_hub.send_to_socket(ws, {
                                 "type": "system",
                                 "text": f"📜 Previously in your adventure: {sess_obj.session_summary}",
@@ -1024,7 +1025,7 @@ async def websocket_endpoint(
                         message_history=history,
                         new_message=action_text,
                         on_tool_use=on_tool_use,
-                        in_combat=bool(game_state_manager._combat.get(session_id)),
+                        in_combat=lambda: bool(game_state_manager._combat.get(session_id)),
                     ):
                         full_response_parts.append(chunk)
                         yield chunk

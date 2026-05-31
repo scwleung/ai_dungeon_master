@@ -278,7 +278,7 @@ class SessionResponse(BaseModel):
             # Only use the normalised rows when already eagerly loaded — never
             # trigger a lazy select inside a Pydantic validator (no async ctx).
             msg_objects = obj.__dict__.get("msg_objects")
-            if msg_objects:
+            if msg_objects is not None:
                 parsed = [
                     {
                         "id": m.id,

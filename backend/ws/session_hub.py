@@ -248,6 +248,8 @@ class SessionHub:
                     pass
         self._rooms.clear()
         self._spectators.clear()
+        self._player_sockets.clear()
+        self._last_activity.clear()
 
     def evict_stale(self, max_age: float = 3600.0) -> list[str]:
         """Close and remove rooms with no activity for *max_age* seconds.

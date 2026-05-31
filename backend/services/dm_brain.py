@@ -732,7 +732,7 @@ class DungeonMaster:
         message_history: list[dict],
         new_message: str,
         on_tool_use: Callable,
-        in_combat: bool = False,
+        in_combat: bool | Callable[[], bool] = False,
     ) -> AsyncGenerator[str, None]:
         """
         Stream the DM's response, handling tool use in a multi-turn loop.
@@ -765,8 +765,10 @@ class DungeonMaster:
             elif isinstance(content, list) and content:
                 cached_content = list(content)
                 last_block = dict(cached_content[-1])  # type: ignore[index]
-                last_block["cache_control"] = {"type": "ephemeral"}
-                cached_content[-1] = last_block  # type: ignore[index]
+                # Only text blocks accept cache_control; tool_result blocks do not
+                if last_block.get("type") == "text":
+                    last_block["cache_control"] = {"type": "ephemeral"}
+                    cached_content[-1] = last_block  # type: ignore[index]
             else:
                 cached_content = content
             messages[-1] = {**last, "content": cached_content}
@@ -778,11 +780,12 @@ class DungeonMaster:
             tool_use_blocks: list[dict] = []
             stop_reason: str = "end_turn"
 
+            _combat_active = in_combat() if callable(in_combat) else in_combat
             async with self.client.messages.stream(
                 model="claude-sonnet-4-6",
                 max_tokens=2048,
                 system=system,
-                tools=TOOLS_BASE + (TOOLS_COMBAT if in_combat else []),
+                tools=TOOLS_BASE + (TOOLS_COMBAT if _combat_active else []),
                 messages=messages,
             ) as stream:
                 # Stream text to caller, collect all blocks

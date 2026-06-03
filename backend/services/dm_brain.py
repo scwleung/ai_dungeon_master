@@ -11,7 +11,8 @@ DM tools available to Claude during narration:
     request_player_roll  — Suspends generation and asks a specific player to roll.
 
   Character & world state:
-    update_character     — Applies HP delta, inventory changes, and conditions.
+    update_character     — Applies HP delta, inventory/condition/XP/spell-slot/
+                           currency/feature/backstory changes; appends audit log.
     update_world_state   — Merges key-value facts into the campaign's world state.
 
   Dungeon map:
@@ -29,12 +30,38 @@ DM tools available to Claude during narration:
     upsert_npc           — Adds or updates an NPC record (name, faction, attitude,
                            location, notes); broadcasts `npc_update`.
 
+  Quest log:
+    upsert_quest         — Adds or updates a quest (name, status, description);
+                           broadcasts `quest_update`.
+
   Party state:
-    update_party_state   — Updates party gold and shared inventory; broadcasts party_update.
+    update_party_state   — Updates party gold and shared inventory; broadcasts `party_update`.
 
   Scene illustration:
     generate_scene_image — Calls DALL-E 3 to produce an atmospheric image for
                            the current scene; broadcasts `scene_image`.
+
+  Loot generation:
+    generate_loot        — Generates CR-appropriate treasure via Claude Haiku;
+                           returns an item list to the DM for narration.
+
+Tool set:
+  TOOLS_BASE is always included.  TOOLS_COMBAT (start_combat, next_turn,
+  end_combat) is appended only when ``in_combat`` evaluates to True.
+  ``in_combat`` may be a plain bool or a zero-argument callable so the
+  combat state is re-evaluated on each iteration of the generation loop.
+
+Prefix caching:
+  Both system blocks carry ``cache_control: {"type": "ephemeral"}``.  The
+  static block (role + instructions) is cached once and reused across every
+  turn; the dynamic block (campaign context, NPCs, quests) is refreshed each
+  turn but cached for multi-turn reuse within the same token budget window.
+  The last message in the history also receives cache_control so that long
+  conversation tails are cached between consecutive player actions.
+
+NPC context limit:
+  _NPC_CONTEXT_LIMIT caps the number of NPC entries injected into the dynamic
+  system block at 25 to keep prompt size bounded for campaigns with many NPCs.
 
 Context management:
   When a session exceeds SUMMARY_THRESHOLD messages, the DungeonMaster

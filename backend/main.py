@@ -4,28 +4,55 @@ FastAPI application entry point for the AI Dungeon Master.
 Provides:
   - REST API under /api/campaigns, /api/characters, /api/tts
   - WebSocket endpoint at /ws/{session_id}
+  - Health probe at /health (returns 200/503 based on DB liveness)
   - SPA fallback: serves the compiled React frontend from frontend/dist/
     when that directory exists (i.e. in the Docker production image)
 
 WebSocket message types (client → server):
-  join_session         Register player in session room
-  player_action        Typed narrative action text
-  voice_transcript     STT-derived text, treated same as player_action
-  dice_image           Base64 image for dice vision detection
-  manual_roll          Player's manual dice result for a pending roll request
+  join_session             Register player in session room
+  player_action            Typed narrative action text (capped at 2 000 chars)
+  voice_transcript         STT-derived text, treated same as player_action
+  dice_image               Base64 camera frame for Vision dice detection
+  manual_roll              Player's manual dice entry for a pending roll request
+  dice_result              Camera-confirmed physical dice result
+  pong                     Keepalive reply to a server ping
+  ooc_message              Out-of-character chat message
+  ambient_update           DM broadcasts ambient audio selection to all clients
+  ready_check              DM polls players with a ready-check prompt
+  ready_response           Player responds to a ready check
+  dm_secret_roll           DM rolls server-side; result sent only to this socket
+  scene_marker             DM inserts a named scene break into the narrative log
+  voice_recording          Relay push-to-talk state to other players
+  combat_use_reaction      Mark a combatant's reaction as used
+  combat_reset_reactions   Reset all combatant reactions in the current encounter
+  combat_legendary_action  Adjust a combatant's legendary action counter
 
 WebSocket message types (server → client):
+  joined               Confirms player joined (session_id, player_id, is_spectator)
   player_joined        Broadcast when someone joins
   player_left          Broadcast when someone disconnects
+  ping                 Keepalive heartbeat sent every 30 s
   dm_chunk             Streaming text fragment from Claude
   dm_response_complete Full DM response (end of stream)
   dice_result          DM or player dice roll result
   dice_request         Request for a specific player to roll
   state_update         Character stat update broadcast
   map_update           Fog-of-war update: newly explored room IDs
+  map_annotation_update DM map pins updated via REST
   combat_update        Full combat tracker state (active, round, turn, combatants)
   npc_update           Full NPC registry for the campaign
   quest_update         Full quest log for the campaign
+  party_update         Shared party gold + items
+  pinned_update        Pinned session notes updated via REST
+  time_update          World clock / weather updated via REST
+  handout_push         New handout pushed to players
+  ambient_update       Ambient audio selection broadcast
+  ooc_broadcast        Out-of-character chat message broadcast
+  ready_check          Ready-check poll broadcast
+  ready_response       Player ready-check response broadcast
+  scene_marker         Scene break broadcast to all players
+  voice_recording      Push-to-talk state relayed to other players
+  secret_roll_result   Secret roll result sent only to the requesting socket
   scene_image          URL of an AI-generated scene illustration
   system               Generic server notice (e.g. session lifecycle events)
   error                Error message
@@ -159,14 +186,18 @@ app.add_middleware(
 
 @app.get("/health", tags=["meta"])
 async def health_check():
-    """Lightweight liveness probe for load balancers and Docker health checks."""
+    """Liveness probe for load balancers. Returns 503 when the database is unreachable."""
     try:
         async with AsyncSessionLocal() as db:
             await db.execute(text("SELECT 1"))
         db_status = "ok"
     except Exception:
         db_status = "error"
-    return {"status": "ok" if db_status == "ok" else "degraded", "db": db_status}
+    status_code = 200 if db_status == "ok" else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ok" if db_status == "ok" else "degraded", "db": db_status},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -976,7 +1007,7 @@ async def websocket_endpoint(
             # player_action or voice_transcript → run DM brain
             # ------------------------------------------------------------
             elif msg_type in ("player_action", "voice_transcript"):
-                action_text = data.get("text", "").strip()
+                action_text = data.get("text", "").strip()[:2000]
                 if not action_text:
                     continue
 

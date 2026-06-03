@@ -106,9 +106,22 @@ async def test_create_campaign_invalid_ruleset_returns_422(client):
     assert r.status_code == 422
 
 
-async def test_create_campaign_empty_name_succeeds(client):
+async def test_create_campaign_empty_name_returns_422(client):
     r = await client.post("/api/campaigns/", json={"name": "", "ruleset": "dnd5e"})
-    assert r.status_code == 201
+    assert r.status_code == 422
+
+
+async def test_create_campaign_name_too_long_returns_422(client):
+    r = await client.post("/api/campaigns/", json={"name": "x" * 256, "ruleset": "dnd5e"})
+    assert r.status_code == 422
+
+
+async def test_create_campaign_description_too_long_returns_422(client):
+    r = await client.post(
+        "/api/campaigns/",
+        json={"name": "Fine Name", "ruleset": "dnd5e", "description": "x" * 2001},
+    )
+    assert r.status_code == 422
 
 
 async def test_create_campaign_world_state_is_empty_dict(client):

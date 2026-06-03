@@ -49,6 +49,7 @@ if "sqlite" in DATABASE_URL:
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA cache_size=10000")
         cursor.execute("PRAGMA temp_store=MEMORY")
+        cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
 AsyncSessionLocal = async_sessionmaker(

@@ -159,14 +159,18 @@ app.add_middleware(
 
 @app.get("/health", tags=["meta"])
 async def health_check():
-    """Lightweight liveness probe for load balancers and Docker health checks."""
+    """Liveness probe for load balancers. Returns 503 when the database is unreachable."""
     try:
         async with AsyncSessionLocal() as db:
             await db.execute(text("SELECT 1"))
         db_status = "ok"
     except Exception:
         db_status = "error"
-    return {"status": "ok" if db_status == "ok" else "degraded", "db": db_status}
+    status_code = 200 if db_status == "ok" else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ok" if db_status == "ok" else "degraded", "db": db_status},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -976,7 +980,7 @@ async def websocket_endpoint(
             # player_action or voice_transcript → run DM brain
             # ------------------------------------------------------------
             elif msg_type in ("player_action", "voice_transcript"):
-                action_text = data.get("text", "").strip()
+                action_text = data.get("text", "").strip()[:2000]
                 if not action_text:
                     continue
 

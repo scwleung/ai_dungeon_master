@@ -53,7 +53,7 @@ from sqlalchemy import String, Text, Integer, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -169,13 +169,13 @@ class CharacterCreate(BaseModel):
     that a minimal payload can create a valid character.
     """
 
-    player_name: str
-    name: str
-    race: str = "Human"
-    class_name: str = "Fighter"
-    level: int = 1
-    hp_current: int = 10
-    hp_max: int = 10
+    player_name: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=100)
+    race: str = Field(default="Human", max_length=100)
+    class_name: str = Field(default="Fighter", max_length=100)
+    level: int = Field(default=1, ge=1, le=30)
+    hp_current: int = Field(default=10, ge=0, le=9999)
+    hp_max: int = Field(default=10, ge=1, le=9999)
     stats: dict = {
         "STR": 10,
         "DEX": 10,
@@ -186,7 +186,7 @@ class CharacterCreate(BaseModel):
     }
     inventory: list[str] = []
     conditions: list[str] = []
-    notes: str = ""
+    notes: str = Field(default="", max_length=10_000)
 
 
 class CharacterResponse(BaseModel):
@@ -307,17 +307,17 @@ class CharacterUpdate(BaseModel):
     payload are applied to the stored character.
     """
 
-    player_name: Optional[str] = None
-    name: Optional[str] = None
-    race: Optional[str] = None
-    class_name: Optional[str] = None
-    level: Optional[int] = None
-    hp_current: Optional[int] = None
-    hp_max: Optional[int] = None
+    player_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    race: Optional[str] = Field(default=None, max_length=100)
+    class_name: Optional[str] = Field(default=None, max_length=100)
+    level: Optional[int] = Field(default=None, ge=1, le=30)
+    hp_current: Optional[int] = Field(default=None, ge=0, le=9999)
+    hp_max: Optional[int] = Field(default=None, ge=1, le=9999)
     stats: Optional[dict] = None
     inventory: Optional[list[str]] = None
     conditions: Optional[list[str]] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=10_000)
     spell_slots: Optional[Dict[str, Any]] = None
     resources: Optional[Dict[str, Any]] = None
     xp: Optional[int] = None

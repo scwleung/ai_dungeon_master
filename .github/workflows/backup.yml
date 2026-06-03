@@ -1,0 +1,48 @@
+name: Daily SQLite backup
+
+# Runs every day at 02:00 UTC and can be triggered manually.
+# Connects to the live Fly.io machine, dumps the SQLite database,
+# and uploads it as a GitHub Actions artifact (90-day retention).
+#
+# Requirements:
+#   - FLY_API_TOKEN secret set in repo Settings → Secrets → Actions
+#   - App is using the SQLite option (DATABASE_URL points to /data/*.db)
+#   - At least one Fly machine must be running (auto-start handles this)
+#
+# For Fly Postgres users: Fly already provides daily automated backups;
+# this workflow is only needed for the SQLite-on-volume setup.
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  APP_NAME: ai-dungeon-master
+  DB_PATH: /data/dungeon_master.db
+
+jobs:
+  backup:
+    name: Backup SQLite database
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Dump database via SSH
+        run: |
+          flyctl ssh console \
+            --app "$APP_NAME" \
+            --command "sqlite3 $DB_PATH .dump" \
+            > dungeon_master_$(date +%Y%m%d).sql
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-backup-${{ github.run_id }}
+          path: "*.sql"
+          retention-days: 90
+          if-no-files-found: error

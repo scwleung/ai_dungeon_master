@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -161,8 +161,8 @@ class CampaignUpdate(BaseModel):
     ruleset is immutable to avoid invalidating existing game-state data.
     """
 
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=2000)
 
 
 @router.put("/{campaign_id}", response_model=CampaignResponse)
@@ -429,7 +429,7 @@ async def get_session_notes(
 class SessionNotesUpdate(BaseModel):
     """Request body for updating session notes."""
 
-    notes: str
+    notes: str = Field(max_length=50_000)
 
 
 @router.put("/sessions/{session_id}/notes")
@@ -488,8 +488,8 @@ async def get_session_pins(session_id: str, db: AsyncSession = Depends(get_db)):
 
 
 class PinEntry(BaseModel):
-    id: str
-    text: str
+    id: str = Field(max_length=64)
+    text: str = Field(max_length=1000)
 
 
 class PinsUpdate(BaseModel):
@@ -953,7 +953,7 @@ async def get_dm_notes(
 
 
 class DMNotesUpdate(BaseModel):
-    dm_notes: str
+    dm_notes: str = Field(max_length=50_000)
 
 
 @router.put("/sessions/{session_id}/dm-notes")

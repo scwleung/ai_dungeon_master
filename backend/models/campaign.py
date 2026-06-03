@@ -28,7 +28,7 @@ from sqlalchemy import String, Text, DateTime, ForeignKey, Index, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 def generate_access_code() -> str:
@@ -170,9 +170,9 @@ class SessionMessage(Base):
 class CampaignCreate(BaseModel):
     """Request body for creating a new campaign."""
 
-    name: str
+    name: str = Field(..., min_length=1, max_length=255)
     ruleset: str = "dnd5e"
-    description: str = ""
+    description: str = Field(default="", max_length=2000)
 
 
 class CampaignResponse(BaseModel):

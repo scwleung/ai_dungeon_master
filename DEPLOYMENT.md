@@ -103,6 +103,8 @@ fly secrets set \
 
 Best for hobby projects. The volume holds the SQLite file across deploys. Limited to one machine at a time.
 
+> **Automated backups**: once `FLY_API_TOKEN` is added to GitHub Secrets (see below), the included `.github/workflows/backup.yml` will dump the database daily at 02:00 UTC and store the `.sql` file as a GitHub Actions artifact for 90 days. You can also trigger it manually from the Actions tab.
+
 #### Option B — Fly Managed PostgreSQL (recommended for production)
 
 ```bash
@@ -193,9 +195,14 @@ fly secrets set ANTHROPIC_API_KEY="sk-ant-..." --app ai-dungeon-master
 ```
 
 **Health check failing**
+
+The app's `/health` endpoint returns HTTP 200 when the database is reachable and HTTP 503 when it is not. Fly.io polls this endpoint every 30 seconds and removes machines that return 503 from the load balancer automatically.
+
 ```bash
 fly logs --app ai-dungeon-master          # view live logs
 curl https://ai-dungeon-master.fly.dev/health
+# Healthy:   {"status":"ok","db":"ok"}
+# Degraded:  {"status":"degraded","db":"error"}  (HTTP 503)
 ```
 
 **Database errors after deploy**

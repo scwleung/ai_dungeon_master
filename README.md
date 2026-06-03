@@ -128,7 +128,7 @@ A full-stack web application that uses the Anthropic Claude API to act as an int
 | **WS reconnect** | Exponential backoff with jitter |
 | **Request deduplication** | `useRef` guard on `sendAction` prevents double-sends |
 | **Rate limiting** | Sliding-window 60 req / min / IP via `collections.defaultdict(deque)` + `time.monotonic()`; loopback IPs exempt |
-| **Health endpoint** | `GET /health` performs a `SELECT 1` DB liveness check |
+| **Health endpoint** | `GET /health` performs a `SELECT 1` DB liveness check; returns HTTP 200 when healthy, HTTP 503 when the database is unreachable. Fly.io polls this every 30 s and automatically removes unhealthy machines from the load balancer. |
 | **PostgreSQL support** | `DATABASE_URL` auto-normalises `postgres://` → `postgresql+asyncpg://` |
 | **Voice input (STT)** | Optional microphone input via the Web Speech API |
 | **Voice output (TTS)** | ElevenLabs, OpenAI TTS, or browser Web Speech API |
@@ -458,9 +458,9 @@ All endpoints are prefixed with `/api`.
 | `POST` | `/api/campaigns/{id}/sessions` | ✓ | Start a new session |
 | `PUT` | `/api/campaigns/sessions/{session_id}/end` | ✓ | End an active session |
 | `GET` | `/api/campaigns/sessions/{session_id}/notes` | — | Get collaborative session notes |
-| `PUT` | `/api/campaigns/sessions/{session_id}/notes` | — | Replace collaborative session notes |
+| `PUT` | `/api/campaigns/sessions/{session_id}/notes` | ✓ | Replace collaborative session notes |
 | `GET` | `/api/campaigns/sessions/{session_id}/pins` | — | Get pinned notes for a session |
-| `PUT` | `/api/campaigns/sessions/{session_id}/pins` | — | Replace pinned notes (broadcasts `pinned_update`) |
+| `PUT` | `/api/campaigns/sessions/{session_id}/pins` | ✓ | Replace pinned notes (broadcasts `pinned_update`) |
 | `GET` | `/api/campaigns/sessions/{session_id}/dm-notes` | ✓ | Get private DM notes for a session |
 | `PUT` | `/api/campaigns/sessions/{session_id}/dm-notes` | ✓ | Replace private DM notes |
 | `POST` | `/api/campaigns/sessions/{session_id}/recap` | — | Generate AI session recap (Claude Haiku) |
@@ -486,9 +486,9 @@ All endpoints are prefixed with `/api`.
 | `POST` | `/api/campaigns/{id}/loot` | — | Generate AI loot (CR + environment) |
 | `POST` | `/api/campaigns/{id}/generate-names` | — | Generate AI NPC names (race + count) |
 | `GET` | `/api/campaigns/{id}/tables` | — | List random tables |
-| `POST` | `/api/campaigns/{id}/tables` | — | Create a random table |
+| `POST` | `/api/campaigns/{id}/tables` | ✓ | Create a random table |
 | `POST` | `/api/campaigns/{id}/tables/{table_id}/roll` | — | Roll on a random table |
-| `DELETE` | `/api/campaigns/{id}/tables/{table_id}` | — | Delete a random table |
+| `DELETE` | `/api/campaigns/{id}/tables/{table_id}` | ✓ | Delete a random table |
 
 ### Combat
 
@@ -523,7 +523,7 @@ All endpoints are prefixed with `/api`.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/health` | DB liveness probe; returns `{"status":"ok","db":"ok"}` or `{"status":"degraded","db":"error"}` |
+| `GET` | `/health` | DB liveness probe; returns HTTP 200 `{"status":"ok","db":"ok"}` when healthy, HTTP 503 `{"status":"degraded","db":"error"}` when the database is unreachable |
 
 **Auth** (✓): include the campaign's access code in the `X-Access-Code` request header.
 
@@ -699,3 +699,7 @@ cd frontend && npm run build
 - `isDM` is derived entirely on the frontend from whether a campaign access token exists in `campaignTokens` (Zustand / `localStorage`). There is no separate backend role concept; the access code is the sole credential.
 - The virtual dice roller uses `crypto.getRandomValues` for cryptographically uniform results — not `Math.random()`. When a `pendingRoll` is active the roller pre-selects the requested die type from the `NdX` notation and its Submit button sends the result to the server as a `manual_roll` WebSocket message.
 - Context summarisation uses `claude-haiku-4-5-20251001` for cost efficiency. The rolling threshold and keep-recent window are configurable via `SUMMARY_THRESHOLD` and `SUMMARY_KEEP_RECENT` in `backend/main.py`.
+- **SQLite foreign key enforcement**: `PRAGMA foreign_keys=ON` is applied on every connection in `backend/database.py`. Without this pragma SQLite silently ignores `ON DELETE CASCADE` rules, leaving orphaned rows when campaigns or sessions are deleted. The pragma has no effect on PostgreSQL.
+- **Input validation**: all free-text fields on Pydantic `Create` and `Update` models carry `Field(min_length=..., max_length=...)` constraints. Requests that exceed these limits are rejected with HTTP 422 before touching the database or the Claude API. WebSocket `player_action` text is additionally capped at 2 000 characters server-side.
+- **Access code comparison**: all `X-Access-Code` header checks use `hmac.compare_digest` for constant-time comparison, preventing timing-oracle attacks that could brute-force the code.
+- **Daily SQLite backup**: `.github/workflows/backup.yml` runs daily at 02:00 UTC and on manual trigger. It SSH-connects to the live Fly.io machine, dumps the SQLite database with `sqlite3 … .dump`, and uploads the `.sql` file as a GitHub Actions artifact with 90-day retention. Requires `FLY_API_TOKEN` to be set in repo secrets. Not needed when using Fly Managed PostgreSQL (which has built-in daily backups).

@@ -2,25 +2,71 @@
 Campaign, Session, and Dungeon Map REST endpoints.
 
 Campaign routes:
-    GET    /                               List all campaigns
+    GET    /                               List all campaigns (descending creation order)
     POST   /                               Create a new campaign
     GET    /{campaign_id}                  Get a single campaign
     PUT    /{campaign_id}                  Update campaign name/description (auth required)
     DELETE /{campaign_id}                  Delete campaign and all related data (auth required)
+    GET    /{campaign_id}/export           Download full campaign bundle as JSON (auth required)
+    POST   /import                         Create a campaign from an exported bundle
+    POST   /{campaign_id}/rotate-access-code  Generate a new access code (auth required)
 
 Session routes:
     GET    /{campaign_id}/sessions         List sessions for a campaign
     POST   /{campaign_id}/sessions         Start a new session (auth required)
     PUT    /sessions/{session_id}/end      Mark a session as ended (auth required)
+    GET    /sessions/{session_id}/notes    Get collaborative session notes
+    PUT    /sessions/{session_id}/notes    Replace collaborative session notes (auth required)
+    GET    /sessions/{session_id}/pins     Get pinned notes for a session
+    PUT    /sessions/{session_id}/pins     Replace pinned notes; broadcasts pinned_update (auth required)
+    GET    /sessions/{session_id}/dm-notes Get private DM notes (auth required)
+    PUT    /sessions/{session_id}/dm-notes Replace private DM notes (auth required)
+    POST   /sessions/{session_id}/recap    Generate AI session recap via Claude Haiku
 
 Dungeon map routes:
     GET    /{campaign_id}/map              Return the campaign's dungeon map; auto-generates
                                            one the first time it is requested.
     POST   /{campaign_id}/map/generate     Force-regenerate the dungeon map (auth required).
+    GET    /{campaign_id}/map/annotations  Get DM map annotation pins
+    PUT    /{campaign_id}/map/annotations  Replace map annotations; broadcasts map_annotation_update
+                                           (auth required)
+
+World state / tools:
+    GET    /{campaign_id}/world-time       Get world clock / weather state
+    PUT    /{campaign_id}/world-time       Update world clock / weather; broadcasts time_update
+                                           (auth required)
+    GET    /{campaign_id}/npcs             List all NPCs for a campaign
+    GET    /{campaign_id}/quests           List all quests for a campaign
+    GET    /{campaign_id}/party            Get party shared gold + items
+    PUT    /{campaign_id}/party            Update party state; broadcasts party_update (auth required)
+    GET    /{campaign_id}/handouts         List player handouts
+    POST   /{campaign_id}/handouts         Create a handout; broadcasts handout_push (auth required)
+    DELETE /{campaign_id}/handouts/{id}    Delete a handout (auth required)
+    GET    /{campaign_id}/timeline         Get campaign timeline events
+    POST   /{campaign_id}/timeline         Add a timeline event (auth required)
+    DELETE /{campaign_id}/timeline/{id}    Delete a timeline event (auth required)
+    GET    /{campaign_id}/readalouds       List read-aloud library entries
+    POST   /{campaign_id}/readalouds       Create a read-aloud entry (auth required)
+    DELETE /{campaign_id}/readalouds/{id}  Delete a read-aloud entry (auth required)
+    POST   /{campaign_id}/loot             Generate AI loot (CR + environment)
+    POST   /{campaign_id}/generate-names   Generate AI NPC names (race + count)
+    GET    /{campaign_id}/tables           List random tables
+    POST   /{campaign_id}/tables           Create a random table (auth required)
+    POST   /{campaign_id}/tables/{id}/roll Roll on a random table
+    DELETE /{campaign_id}/tables/{id}      Delete a random table (auth required)
+
+Admin:
+    GET    /admin/backup                   Download full DB backup as JSON (requires X-Admin-Key)
+
+Performance notes:
+  session_count and message_count are computed via correlated scalar subqueries
+  rather than eager-loading relationship collections, keeping list endpoints O(1)
+  in memory regardless of how many sessions or messages a campaign has.
 
 Authentication: write operations require the campaign's access code in the
 ``X-Access-Code`` request header (generated at campaign creation time and
-returned in the campaign response).
+returned in the campaign response).  All comparisons use ``hmac.compare_digest``
+to prevent timing-oracle attacks.
 """
 
 from __future__ import annotations

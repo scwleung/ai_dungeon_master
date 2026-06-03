@@ -2,9 +2,10 @@
 Campaign and Session ORM models and Pydantic schemas.
 
 ORM models:
-    Campaign  — top-level container for a role-playing campaign.
-    Session   — a single play session within a campaign; stores the full
-                message history as a JSON-serialised list.
+    Campaign       — top-level container for a role-playing campaign.
+    Session        — a single play session within a campaign.
+    SessionMessage — one row per message; replaces the legacy JSON blob approach
+                     so inserts are O(1) regardless of session length.
 
 Pydantic schemas:
     CampaignCreate    — input schema for creating a campaign.
@@ -12,10 +13,19 @@ Pydantic schemas:
     NarrativeMessage  — a single message in a session's chat history.
     SessionResponse   — output schema returned by the sessions API.
 
-JSON storage note: ``world_state`` (Campaign) and ``messages`` (Session) are
-persisted as JSON strings in SQLite because aiosqlite does not natively support
-JSON columns.  The Pydantic ``model_validator`` methods handle deserialisation
-when constructing response objects.
+JSON storage note: ``world_state`` (Campaign) is persisted as a JSON string in
+SQLite because aiosqlite does not natively support JSON columns.  The Pydantic
+``model_validator`` methods handle deserialisation when constructing response
+objects.
+
+Message storage: individual messages are written to the ``session_messages``
+table via ``_save_message_to_db`` in ``main.py``.  The ``SessionResponse`` schema
+aggregates them into a ``messages`` list and exposes a ``message_count`` field
+computed from the same rows.
+
+Input validation: ``CampaignCreate`` and ``CampaignUpdate`` enforce ``min_length``
+and ``max_length`` constraints via Pydantic ``Field``; invalid payloads are
+rejected with HTTP 422 before touching the database.
 """
 
 import json

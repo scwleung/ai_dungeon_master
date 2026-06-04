@@ -390,3 +390,243 @@ async def test_characters_from_different_campaigns_not_mixed(client):
     assert "Elara" not in names_a
     assert "Elara" in names_b
     assert "Thorin" not in names_b
+
+
+# ---------------------------------------------------------------------------
+# Input validation limit tests (CharacterCreate — Pydantic Field constraints)
+# ---------------------------------------------------------------------------
+
+
+async def test_create_character_player_name_too_long_returns_422(client):
+    """player_name max_length=100 — over-limit must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "player_name": "A" * 101}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_player_name_empty_returns_422(client):
+    """player_name min_length=1 — empty string must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "player_name": ""}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_name_too_long_returns_422(client):
+    """name max_length=100 — over-limit must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "name": "B" * 101}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_name_empty_returns_422(client):
+    """name min_length=1 — empty string must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "name": ""}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_race_too_long_returns_422(client):
+    """race max_length=100 — over-limit must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "race": "R" * 101}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_class_name_too_long_returns_422(client):
+    """class_name max_length=100 — over-limit must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "class_name": "C" * 101}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_level_above_max_returns_422(client):
+    """level le=30 — value above 30 must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "level": 31}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_level_zero_returns_422(client):
+    """level ge=1 — value of 0 must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "level": 0}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_level_30_accepted(client):
+    """level le=30 — boundary value 30 must be accepted."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "level": 30}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 201
+    assert r.json()["level"] == 30
+
+
+async def test_create_character_hp_current_negative_returns_422(client):
+    """hp_current ge=0 — negative value must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "hp_current": -1}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_hp_current_zero_accepted(client):
+    """hp_current ge=0 — boundary value 0 must be accepted (character at 0 HP)."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "hp_current": 0}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 201
+    assert r.json()["hp_current"] == 0
+
+
+async def test_create_character_hp_over_max_returns_422(client):
+    """hp_current le=9999 — value above 9999 must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "hp_current": 10_000}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_hp_max_over_limit_returns_422(client):
+    """hp_max le=9999 — value above 9999 must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "hp_max": 10_000}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_notes_too_long_returns_422(client):
+    """notes max_length=10_000 — over-limit must return 422."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "notes": "N" * 10_001}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_create_character_notes_at_max_length_accepted(client):
+    """notes max_length=10_000 — exactly 10 000 chars must be accepted."""
+    campaign = await make_campaign(client)
+    data = {**CHARACTER_DATA, "notes": "N" * 10_000}
+    r = await client.post(
+        f"/api/{campaign['id']}/characters",
+        json=data,
+        headers=auth(campaign),
+    )
+    assert r.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# Input validation limit tests for CharacterUpdate
+# ---------------------------------------------------------------------------
+
+
+async def test_update_character_player_name_too_long_returns_422(client):
+    """CharacterUpdate.player_name max_length=100 — over-limit must return 422."""
+    campaign = await make_campaign(client)
+    char = await make_character(client, campaign)
+    r = await client.put(
+        f"/api/characters/{char['id']}",
+        json={"player_name": "A" * 101},
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_update_character_name_too_long_returns_422(client):
+    """CharacterUpdate.name max_length=100 — over-limit must return 422."""
+    campaign = await make_campaign(client)
+    char = await make_character(client, campaign)
+    r = await client.put(
+        f"/api/characters/{char['id']}",
+        json={"name": "B" * 101},
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_update_character_level_above_max_returns_422(client):
+    """CharacterUpdate.level le=30 — value above 30 must return 422."""
+    campaign = await make_campaign(client)
+    char = await make_character(client, campaign)
+    r = await client.put(
+        f"/api/characters/{char['id']}",
+        json={"level": 31},
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422
+
+
+async def test_update_character_notes_too_long_returns_422(client):
+    """CharacterUpdate.notes max_length=10_000 — over-limit must return 422."""
+    campaign = await make_campaign(client)
+    char = await make_character(client, campaign)
+    r = await client.put(
+        f"/api/characters/{char['id']}",
+        json={"notes": "N" * 10_001},
+        headers=auth(campaign),
+    )
+    assert r.status_code == 422

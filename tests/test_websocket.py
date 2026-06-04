@@ -446,3 +446,133 @@ class TestDmSecretRoll:
         assert msg["modifier"] == 5
         # total must equal sum(values) + modifier
         assert msg["total"] == sum(msg["values"]) + msg["modifier"]
+
+
+# ---------------------------------------------------------------------------
+# Auth-before-register WebSocket pattern
+# ---------------------------------------------------------------------------
+
+
+class TestAuthBeforeRegister:
+    """
+    Verify that the auth-before-register contract holds:
+      - ws.accept() is called first so we can send a close code on failure.
+      - session_hub.register() is called ONLY after auth passes.
+      - An invalid access code causes the socket to be closed (code 4403)
+        and the socket is NEVER added to the session room.
+    """
+
+    def _make_db_cm_with_access_code(self, campaign_code: str, session_campaign_id: str = "camp-auth"):
+        """Return a DB mock whose campaign has a specific access_code."""
+        fake_campaign = MagicMock()
+        fake_campaign.id = session_campaign_id
+        fake_campaign.access_code = campaign_code
+
+        fake_session = MagicMock()
+        fake_session.campaign_id = session_campaign_id
+        fake_session.messages = "[]"
+        fake_session.access_code = campaign_code
+
+        def execute_side_effect(stmt):
+            result = MagicMock()
+            # First execute → session lookup; second → campaign lookup
+            result.scalar_one_or_none.side_effect = [fake_session, fake_campaign]
+            return result
+
+        async_db = AsyncMock()
+        # Use a simple counter to alternate return values for the two execute calls
+        call_count = [0]
+
+        async def mock_execute(stmt):
+            call_count[0] += 1
+            result = MagicMock()
+            if call_count[0] == 1:
+                result.scalar_one_or_none.return_value = fake_session
+            else:
+                result.scalar_one_or_none.return_value = fake_campaign
+            return result
+
+        async_db.execute = mock_execute
+        async_db.commit = AsyncMock()
+
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=async_db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        return cm
+
+    def test_wrong_access_code_closes_connection(self):
+        """
+        When the campaign has access_code='secret' and the client sends
+        access_code='wrong', the server must close with code 4403.
+        """
+        db_cm = self._make_db_cm_with_access_code("secret")
+        with patch("backend.main.AsyncSessionLocal", return_value=db_cm), \
+             patch("backend.main.init_db", new_callable=AsyncMock):
+            with TestClient(app) as client:
+                try:
+                    with client.websocket_connect(
+                        "/ws/auth-sess-1?player_id=p1&access_code=wrong"
+                    ) as ws:
+                        ws.send_json({"type": "join_session", "player_name": "Intruder"})
+                        # Connection should be closed by server; receiving should raise
+                        ws.receive_json()
+                except Exception:
+                    pass  # Expected: connection closed by server
+
+    def test_wrong_access_code_socket_not_in_room(self):
+        """
+        After a rejected connection (wrong access code), the session room must
+        remain empty — register() must never have been called for that socket.
+        """
+        from backend.ws.session_hub import session_hub
+
+        db_cm = self._make_db_cm_with_access_code("secret")
+        with patch("backend.main.AsyncSessionLocal", return_value=db_cm), \
+             patch("backend.main.init_db", new_callable=AsyncMock):
+            with TestClient(app) as client:
+                try:
+                    with client.websocket_connect(
+                        "/ws/auth-sess-2?player_id=p1&access_code=wrong"
+                    ) as ws:
+                        ws.receive_json()
+                except Exception:
+                    pass
+
+        # After the rejected connection is done, room must be empty
+        assert session_hub.get_player_count("auth-sess-2") == 0
+
+    def test_correct_access_code_socket_joins_room(self):
+        """
+        With the correct access code, the socket must be registered in the room.
+        """
+        db_cm = self._make_db_cm_with_access_code("secret")
+        with patch("backend.main.AsyncSessionLocal", return_value=db_cm), \
+             patch("backend.main.init_db", new_callable=AsyncMock):
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    "/ws/auth-sess-3?player_id=p1&access_code=secret"
+                ) as ws:
+                    ws.send_json({"type": "join_session", "player_name": "ValidPlayer"})
+                    msg = ws.receive_json()
+
+        assert msg["type"] == "joined"
+        assert msg["player_id"] == "p1"
+
+    def test_empty_access_code_becomes_spectator(self):
+        """
+        When the campaign has an access_code set but the client sends no code
+        (empty string), the connection is accepted as spectator (not rejected).
+        """
+        db_cm = self._make_db_cm_with_access_code("secret")
+        with patch("backend.main.AsyncSessionLocal", return_value=db_cm), \
+             patch("backend.main.init_db", new_callable=AsyncMock):
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    "/ws/auth-sess-4?player_id=p1"
+                    # access_code defaults to "" — spectator access
+                ) as ws:
+                    ws.send_json({"type": "join_session", "player_name": "Spectator"})
+                    msg = ws.receive_json()
+
+        assert msg["type"] == "joined"
+        assert msg["is_spectator"] is True

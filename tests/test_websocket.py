@@ -336,3 +336,113 @@ class TestDisconnect:
 
         assert msg["type"] == "player_left"
         assert msg["player_id"] == "p2"
+
+
+# ---------------------------------------------------------------------------
+# dm_secret_roll
+# ---------------------------------------------------------------------------
+
+
+class TestDmSecretRoll:
+    def test_secret_roll_result_sent_to_requesting_socket(self):
+        """dm_secret_roll result must be delivered to the requesting socket."""
+        with ExitStack() as s:
+            for p in _base_patches():
+                s.enter_context(p)
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    "/ws/sess-sr1?player_id=dm&player_name=DM"
+                ) as ws:
+                    ws.send_json({"type": "join_session", "player_name": "DM"})
+                    ws.receive_json()  # "joined"
+
+                    ws.send_json(
+                        {
+                            "type": "dm_secret_roll",
+                            "dice": "1d20",
+                            "reason": "Perception check",
+                        }
+                    )
+                    msg = ws.receive_json()
+
+        assert msg["type"] == "secret_roll_result"
+        assert "total" in msg
+        assert "values" in msg
+        assert msg["dice"] == "1d20"
+        assert msg["reason"] == "Perception check"
+
+    def test_secret_roll_result_not_broadcast_to_other_sockets(self):
+        """dm_secret_roll must NOT be received by other connected sockets."""
+        with ExitStack() as s:
+            for p in _base_patches():
+                s.enter_context(p)
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    "/ws/sess-sr2?player_id=p1&player_name=Alice"
+                ) as ws1:
+                    ws1.send_json({"type": "join_session", "player_name": "Alice"})
+                    ws1.receive_json()  # ws1 "joined"
+
+                    with client.websocket_connect(
+                        "/ws/sess-sr2?player_id=dm&player_name=DM"
+                    ) as ws2:
+                        ws2.send_json({"type": "join_session", "player_name": "DM"})
+                        ws2.receive_json()  # ws2 "joined"
+                        ws1.receive_json()  # ws1 "player_joined"
+
+                        ws2.send_json(
+                            {
+                                "type": "dm_secret_roll",
+                                "dice": "1d20",
+                                "reason": "Secret perception",
+                            }
+                        )
+                        # ws2 should receive the secret_roll_result
+                        secret = ws2.receive_json()
+                        assert secret["type"] == "secret_roll_result"
+
+                        # ws2 sends a known probe message so ws1 can assert
+                        # it only sees that and nothing else from the secret roll
+                        ws2.send_json({"type": "ooc_message", "text": "probe"})
+                        probe = ws1.receive_json()
+
+        # ws1 should have received the ooc_broadcast probe, NOT a secret_roll_result
+        assert probe["type"] == "ooc_broadcast"
+
+    def test_secret_roll_result_total_is_integer(self):
+        """secret_roll_result.total must be an integer."""
+        with ExitStack() as s:
+            for p in _base_patches():
+                s.enter_context(p)
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    "/ws/sess-sr3?player_id=dm&player_name=DM"
+                ) as ws:
+                    ws.send_json({"type": "join_session", "player_name": "DM"})
+                    ws.receive_json()
+
+                    ws.send_json({"type": "dm_secret_roll", "dice": "2d6", "reason": ""})
+                    msg = ws.receive_json()
+
+        assert isinstance(msg["total"], int)
+        assert isinstance(msg["values"], list)
+        assert len(msg["values"]) == 2  # 2d6 → two values
+
+    def test_secret_roll_modifier_applied(self):
+        """dm_secret_roll with a modifier in dice notation must reflect it."""
+        with ExitStack() as s:
+            for p in _base_patches():
+                s.enter_context(p)
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    "/ws/sess-sr4?player_id=dm&player_name=DM"
+                ) as ws:
+                    ws.send_json({"type": "join_session", "player_name": "DM"})
+                    ws.receive_json()
+
+                    ws.send_json({"type": "dm_secret_roll", "dice": "1d20+5", "reason": ""})
+                    msg = ws.receive_json()
+
+        assert msg["modifier"] == 5
+        # total must equal sum(values) + modifier
+        assert msg["total"] == sum(msg["values"]) + msg["modifier"]

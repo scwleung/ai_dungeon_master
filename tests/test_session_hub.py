@@ -214,3 +214,62 @@ async def test_dead_socket_during_broadcast_cleaned_up():
     ws2.send_json.assert_called_once_with(msg)
     # ws1 should no longer be in the session
     assert hub.get_player_count("s1") == 1
+
+
+# ---------------------------------------------------------------------------
+# register() vs connect() unit tests
+# ---------------------------------------------------------------------------
+
+
+async def test_register_does_not_call_accept():
+    """register() must add ws to _rooms WITHOUT calling ws.accept()."""
+    hub = SessionHub()
+    ws = make_ws()
+    hub.register(ws, "s1", "p1")
+    ws.accept.assert_not_called()
+
+
+async def test_register_adds_ws_to_rooms():
+    """register() must add the socket to _rooms even without accept()."""
+    hub = SessionHub()
+    ws = make_ws()
+    hub.register(ws, "s1", "p1")
+    assert hub.get_player_count("s1") == 1
+
+
+async def test_register_records_session_info():
+    """register() must record (session_id, player_id) in _player_sockets."""
+    hub = SessionHub()
+    ws = make_ws()
+    hub.register(ws, "s1", "p1")
+    assert hub.get_session_info(ws) == ("s1", "p1")
+
+
+async def test_connect_calls_accept_then_registers():
+    """connect() must call ws.accept() AND add ws to _rooms."""
+    hub = SessionHub()
+    ws = make_ws()
+    await hub.connect(ws, "s1", "p1")
+    ws.accept.assert_called_once()
+    assert hub.get_player_count("s1") == 1
+
+
+async def test_unregistered_ws_not_in_any_room():
+    """A socket that was never registered must not appear in any room."""
+    hub = SessionHub()
+    ws = make_ws()
+    # Never called register() or connect()
+    assert hub.get_session_info(ws) is None
+    assert hub.get_player_count("s1") == 0
+
+
+async def test_register_multiple_sockets_same_session():
+    """Two register() calls for different sockets in the same session are both tracked."""
+    hub = SessionHub()
+    ws1 = make_ws()
+    ws2 = make_ws()
+    hub.register(ws1, "s1", "p1")
+    hub.register(ws2, "s1", "p2")
+    assert hub.get_player_count("s1") == 2
+    ws1.accept.assert_not_called()
+    ws2.accept.assert_not_called()

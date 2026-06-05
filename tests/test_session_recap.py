@@ -58,7 +58,10 @@ async def test_generate_recap_success(client):
     mock_client = make_mock_anthropic("Previously on...")
 
     with patch("backend.routers.campaigns._anthropic_client", mock_client):
-        r = await client.post(f"/api/campaigns/sessions/{session_id}/recap")
+        r = await client.post(
+            f"/api/campaigns/sessions/{session_id}/recap",
+            headers=auth(campaign),
+        )
 
     assert r.status_code == 200
     data = r.json()
@@ -71,7 +74,10 @@ async def test_generate_recap_nonexistent_session(client):
     mock_client = make_mock_anthropic()
 
     with patch("backend.routers.campaigns._anthropic_client", mock_client):
-        r = await client.post("/api/campaigns/sessions/nonexistent-session-id-000/recap")
+        r = await client.post(
+            "/api/campaigns/sessions/nonexistent-session-id-000/recap",
+            headers={"X-Access-Code": "any"},
+        )
 
     assert r.status_code == 404
 
@@ -87,7 +93,10 @@ async def test_generate_recap_no_notes(client):
     mock_client = make_mock_anthropic(recap_text)
 
     with patch("backend.routers.campaigns._anthropic_client", mock_client):
-        r = await client.post(f"/api/campaigns/sessions/{session_id}/recap")
+        r = await client.post(
+            f"/api/campaigns/sessions/{session_id}/recap",
+            headers=auth(campaign),
+        )
 
     assert r.status_code == 200
     data = r.json()

@@ -14,8 +14,8 @@ export interface Campaign {
   world_state: Record<string, string>
   /** Total number of sessions that have been started for this campaign. */
   session_count: number
-  /** Access code required for write operations; returned at creation time and stored client-side. */
-  access_code: string
+  /** Access code; present only in creation / rotate-access-code responses. Never returned by GET endpoints. Store from the creation response and persist in localStorage. */
+  access_code?: string
 }
 
 /** A single play session within a campaign, capturing the message history. */

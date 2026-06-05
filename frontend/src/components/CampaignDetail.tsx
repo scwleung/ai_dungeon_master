@@ -183,7 +183,7 @@ export function CampaignDetail() {
 
   async function handleCopyInvite() {
     if (!activeCampaign) return
-    const code = campaignTokens[activeCampaign.id] ?? activeCampaign.access_code
+    const code = campaignTokens[activeCampaign.id] ?? ''
     const url = `${window.location.origin}${window.location.pathname}?campaign=${activeCampaign.id}&code=${code}`
     try {
       await navigator.clipboard.writeText(url)

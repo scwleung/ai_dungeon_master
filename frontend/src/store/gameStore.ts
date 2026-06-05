@@ -399,7 +399,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setActiveCampaign: (c) => {
     if (c) {
       const tokens = get().campaignTokens
-      setAccessCode(tokens[c.id] ?? c.access_code ?? '')
+      setAccessCode(tokens[c.id] ?? '')
     } else {
       setAccessCode('')
     }

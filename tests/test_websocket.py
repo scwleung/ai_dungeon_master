@@ -28,7 +28,7 @@ def _make_db_cm(campaign_id: str | None = None):
     fake_session.access_code = ""
 
     exec_result = MagicMock()
-    exec_result.scalar_one_or_none.return_value = fake_session if campaign_id else None
+    exec_result.scalar_one_or_none.return_value = fake_session
 
     async_db = AsyncMock()
     async_db.execute = AsyncMock(return_value=exec_result)
@@ -40,7 +40,7 @@ def _make_db_cm(campaign_id: str | None = None):
     return cm
 
 
-def _base_patches(campaign_id: str | None = None) -> list:
+def _base_patches(campaign_id: str = "test-camp") -> list:
     return [
         patch("backend.main.AsyncSessionLocal", return_value=_make_db_cm(campaign_id)),
         patch("backend.main.init_db", new_callable=AsyncMock),
@@ -351,7 +351,7 @@ class TestDmSecretRoll:
                 s.enter_context(p)
             with TestClient(app) as client:
                 with client.websocket_connect(
-                    "/ws/sess-sr1?player_id=dm&player_name=DM"
+                    "/ws/sess-sr1?player_id=dm&player_name=DM&is_dm=true"
                 ) as ws:
                     ws.send_json({"type": "join_session", "player_name": "DM"})
                     ws.receive_json()  # "joined"
@@ -384,7 +384,7 @@ class TestDmSecretRoll:
                     ws1.receive_json()  # ws1 "joined"
 
                     with client.websocket_connect(
-                        "/ws/sess-sr2?player_id=dm&player_name=DM"
+                        "/ws/sess-sr2?player_id=dm&player_name=DM&is_dm=true"
                     ) as ws2:
                         ws2.send_json({"type": "join_session", "player_name": "DM"})
                         ws2.receive_json()  # ws2 "joined"
@@ -416,7 +416,7 @@ class TestDmSecretRoll:
                 s.enter_context(p)
             with TestClient(app) as client:
                 with client.websocket_connect(
-                    "/ws/sess-sr3?player_id=dm&player_name=DM"
+                    "/ws/sess-sr3?player_id=dm&player_name=DM&is_dm=true"
                 ) as ws:
                     ws.send_json({"type": "join_session", "player_name": "DM"})
                     ws.receive_json()
@@ -435,7 +435,7 @@ class TestDmSecretRoll:
                 s.enter_context(p)
             with TestClient(app) as client:
                 with client.websocket_connect(
-                    "/ws/sess-sr4?player_id=dm&player_name=DM"
+                    "/ws/sess-sr4?player_id=dm&player_name=DM&is_dm=true"
                 ) as ws:
                     ws.send_json({"type": "join_session", "player_name": "DM"})
                     ws.receive_json()

@@ -186,12 +186,12 @@ class CampaignCreate(BaseModel):
 
 
 class CampaignResponse(BaseModel):
-    """API response schema for a campaign.
+    """API response schema for a campaign (read endpoints).
 
     ``world_state`` is always returned as a parsed ``dict``; ``session_count``
-    is derived from the length of the ``sessions`` relationship at read time.
-    ``access_code`` is included so clients can store it for subsequent
-    authenticated requests.
+    is populated by the router via a scalar subquery.  ``access_code`` is
+    intentionally omitted here — it is only returned by the create and
+    rotate-access-code endpoints via ``CampaignCreateResponse``.
     """
 
     id: str
@@ -200,7 +200,6 @@ class CampaignResponse(BaseModel):
     description: str
     created_at: datetime
     world_state: dict
-    access_code: str
     session_count: int = 0
 
     model_config = {"from_attributes": True}
@@ -225,7 +224,6 @@ class CampaignResponse(BaseModel):
                 "description": obj.description,
                 "created_at": obj.created_at,
                 "world_state": world_state,
-                "access_code": obj.access_code,
                 "session_count": 0,  # overridden by router via scalar subquery
             }
         # Handle dict
@@ -237,6 +235,27 @@ class CampaignResponse(BaseModel):
                 except (json.JSONDecodeError, TypeError):
                     values["world_state"] = {}
         return values
+
+
+class CampaignCreateResponse(CampaignResponse):
+    """Extended response for campaign creation and access-code rotation.
+
+    Identical to ``CampaignResponse`` but also includes ``access_code`` so the
+    client can store it.  Only returned by POST / (create), POST /import, and
+    POST /{id}/rotate-access-code — never by read (GET) endpoints.
+    """
+
+    access_code: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_world_state(cls, values):
+        result = super().parse_world_state(values)
+        if isinstance(result, dict):
+            # Preserve access_code from ORM object if not already in dict
+            if "access_code" not in result and hasattr(values, "access_code"):
+                result["access_code"] = values.access_code
+        return result
 
 
 class NarrativeMessage(BaseModel):

@@ -213,6 +213,13 @@ class GameStateManager:
             self._sessions[session_id] = session
         session.pending_rolls[roll.roll_request_id] = roll
 
+    def get_pending_roll(self, session_id: str, roll_request_id: str) -> Optional[PendingRoll]:
+        """Return a pending roll without removing it (peek). Returns None if not found."""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        return session.pending_rolls.get(roll_request_id)
+
     def resolve_pending_roll(
         self, session_id: str, roll_request_id: str
     ) -> Optional[PendingRoll]:

@@ -92,6 +92,7 @@ from backend.database import get_db
 from backend.models.campaign import (
     Campaign,
     CampaignCreate,
+    CampaignCreateResponse,
     CampaignResponse,
     Session as GameSession,
     SessionMessage,
@@ -134,8 +135,15 @@ def _msg_count_sq(session_id_col) -> "ColumnElement":
 
 
 def _campaign_to_response(campaign: Campaign, session_count: int = 0) -> CampaignResponse:
-    """Convert a Campaign ORM object to a CampaignResponse Pydantic model."""
+    """Convert a Campaign ORM object to a CampaignResponse (no access_code)."""
     resp = CampaignResponse.model_validate(campaign)
+    resp.session_count = session_count
+    return resp
+
+
+def _campaign_to_create_response(campaign: Campaign, session_count: int = 0) -> CampaignCreateResponse:
+    """Convert a Campaign ORM object to a CampaignCreateResponse (includes access_code)."""
+    resp = CampaignCreateResponse.model_validate(campaign)
     resp.session_count = session_count
     return resp
 
@@ -156,7 +164,7 @@ async def list_campaigns(response: Response, db: AsyncSession = Depends(get_db))
     return [_campaign_to_response(c, cnt) for c, cnt in result.all()]
 
 
-@router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=CampaignCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_campaign(
     payload: CampaignCreate,
     db: AsyncSession = Depends(get_db),
@@ -179,7 +187,7 @@ async def create_campaign(
     )
     db.add(campaign)
     await db.flush()
-    return _campaign_to_response(campaign, session_count=0)
+    return _campaign_to_create_response(campaign, session_count=0)
 
 
 @router.get("/{campaign_id}", response_model=CampaignResponse)
@@ -930,7 +938,11 @@ class LootRequest(BaseModel):
 
 
 @router.post("/{campaign_id}/loot")
-async def generate_loot_endpoint(campaign_id: str, payload: LootRequest):
+async def generate_loot_endpoint(
+    campaign_id: str,
+    payload: LootRequest,
+    _campaign: Campaign = Depends(require_campaign_access),
+):
     """Generate treasure loot appropriate for the given CR and environment."""
     from backend.services.dm_brain import DungeonMaster
     dm_instance = DungeonMaster()
@@ -939,7 +951,12 @@ async def generate_loot_endpoint(campaign_id: str, payload: LootRequest):
 
 
 @router.post("/{campaign_id}/trap")
-async def generate_trap(campaign_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+async def generate_trap(
+    campaign_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
     campaign = await db.get(Campaign, campaign_id)
     if not campaign:
         raise HTTPException(status_code=404)
@@ -953,7 +970,12 @@ async def generate_trap(campaign_id: str, body: dict, db: AsyncSession = Depends
 
 
 @router.post("/{campaign_id}/puzzle")
-async def generate_puzzle(campaign_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+async def generate_puzzle(
+    campaign_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
     campaign = await db.get(Campaign, campaign_id)
     if not campaign:
         raise HTTPException(status_code=404)
@@ -967,7 +989,12 @@ async def generate_puzzle(campaign_id: str, body: dict, db: AsyncSession = Depen
 
 
 @router.post("/{campaign_id}/shop")
-async def generate_shop(campaign_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+async def generate_shop(
+    campaign_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
     campaign = await db.get(Campaign, campaign_id)
     if not campaign:
         raise HTTPException(status_code=404)
@@ -989,7 +1016,7 @@ async def generate_shop(campaign_id: str, body: dict, db: AsyncSession = Depends
 async def get_dm_notes(
     session_id: str,
     db: AsyncSession = Depends(get_db),
-    _campaign: Campaign = Depends(require_campaign_access),
+    _: None = Depends(require_session_access),
 ):
     result = await db.execute(select(GameSession).where(GameSession.id == session_id))
     session = result.scalar_one_or_none()
@@ -1007,7 +1034,7 @@ async def update_dm_notes(
     session_id: str,
     payload: DMNotesUpdate,
     db: AsyncSession = Depends(get_db),
-    _campaign: Campaign = Depends(require_campaign_access),
+    _: None = Depends(require_session_access),
 ):
     result = await db.execute(select(GameSession).where(GameSession.id == session_id))
     session = result.scalar_one_or_none()
@@ -1202,7 +1229,11 @@ async def delete_table(
 
 
 @router.post("/sessions/{session_id}/recap")
-async def generate_recap(session_id: str, db: AsyncSession = Depends(get_db)):
+async def generate_recap(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_session_access),
+):
     """Generate a dramatic 'Previously on...' recap for a session using Claude."""
     session = await db.get(GameSession, session_id)
     if not session:

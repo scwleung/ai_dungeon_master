@@ -656,6 +656,7 @@ async def websocket_endpoint(
     player_id: str = "unknown",
     player_name: str = "Adventurer",
     access_code: str = "",
+    is_dm: bool = False,
 ):
     """
     Main WebSocket endpoint for a game session.
@@ -666,6 +667,11 @@ async def websocket_endpoint(
         access_code: Campaign access code; omitting it or passing empty string
                      grants read-only spectator access.  An incorrect non-empty
                      code is rejected with close code 4403.
+        is_dm:       Set to true when connecting as the Dungeon Master.  Only
+                     honoured when a valid access_code is also provided.  Grants
+                     permission to send DM-only messages (scene_marker,
+                     ambient_update, dm_secret_roll, ready_check,
+                     combat_reset_reactions, combat_legendary_action).
     """
     # Accept the raw WebSocket first so we can send a close code on failure.
     # Do NOT register in the room yet — that happens only after auth passes.
@@ -679,22 +685,26 @@ async def websocket_endpoint(
             select(GameSession).where(GameSession.id == session_id)
         )
         db_session = session_result.scalar_one_or_none()
-        if db_session is not None:
-            campaign_id = db_session.campaign_id
-            campaign_result = await db.execute(
-                select(Campaign).where(Campaign.id == campaign_id)
-            )
-            db_campaign = campaign_result.scalar_one_or_none()
-            if db_campaign is not None:
-                campaign_code = db_campaign.access_code or ""
-                if campaign_code and not access_code:
-                    is_spectator_conn = True
-                elif campaign_code and not hmac.compare_digest(campaign_code, access_code):
-                    await ws.close(code=4403, reason="Invalid access code")
-                    return
-                elif not campaign_code and access_code:
-                    # Campaign has no code; any provided code is accepted
-                    pass
+        if db_session is None:
+            await ws.close(code=4404, reason="Session not found")
+            return
+        campaign_id = db_session.campaign_id
+        campaign_result = await db.execute(
+            select(Campaign).where(Campaign.id == campaign_id)
+        )
+        db_campaign = campaign_result.scalar_one_or_none()
+        if db_campaign is not None:
+            campaign_code = db_campaign.access_code or ""
+            if campaign_code and not access_code:
+                is_spectator_conn = True
+            elif campaign_code and not hmac.compare_digest(campaign_code, access_code):
+                await ws.close(code=4403, reason="Invalid access code")
+                return
+
+    # is_dm is only honoured for authenticated (non-spectator) connections.
+    # Spectators are connections without an access code on a code-protected campaign,
+    # so the spectator check already implies unauthenticated.
+    is_dm_conn = is_dm and not is_spectator_conn
 
     # Auth passed — register this socket in the room now.
     session_hub.register(ws, session_id, player_id)
@@ -934,6 +944,11 @@ async def websocket_endpoint(
             except WebSocketDisconnect:
                 break
 
+            # Reject oversized messages before parsing to prevent OOM.
+            if len(raw) > 524_288:  # 512 KB
+                await session_hub.send_to_socket(ws, {"type": "error", "message": "Message too large"})
+                continue
+
             # Per-connection rate limiting
             now = _time.monotonic()
             while _ws_msg_times and now - _ws_msg_times[0] > WS_RATE_WINDOW:
@@ -1152,6 +1167,26 @@ async def websocket_endpoint(
                 values = data.get("values", [total])
                 modifier = int(data.get("modifier", 0))
 
+                # Server-side validation when a pending roll declaration exists.
+                if roll_request_id:
+                    import re as _re
+                    pending = game_state_manager.get_pending_roll(session_id, roll_request_id)
+                    if pending and pending.dice:
+                        m = _re.match(r"^(\d+)d(\d+)([+-]\d+)?$", pending.dice.lower().strip())
+                        if m:
+                            die_sides = int(m.group(2))
+                            declared_mod = int(m.group(3) or 0)
+                            int_values = [v for v in values if isinstance(v, (int, float))]
+                            if not all(1 <= int(v) <= die_sides for v in int_values):
+                                await session_hub.send_to_socket(
+                                    ws,
+                                    {"type": "error", "message": f"Invalid roll: each die face must be 1–{die_sides}"},
+                                )
+                                continue
+                            # Use the server-declared modifier, not the client's.
+                            modifier = declared_mod
+                            total = sum(int(v) for v in int_values) + modifier
+
                 result_payload = {
                     "type": "dice_result",
                     "values": values,
@@ -1210,21 +1245,22 @@ async def websocket_endpoint(
                     )
 
             elif msg_type == "voice_recording":
-                # Relay recording state to all other clients in the room
+                # Relay recording state to all other clients in the room.
+                # Use server-side player_id to prevent impersonation.
                 if not is_spectator_conn:
                     await session_hub.broadcast(
                         session_id,
                         {
                             "type": "voice_recording",
-                            "player_id": data.get("player_id", player_id),
+                            "player_id": player_id,
                             "active": bool(data.get("active", False)),
                         },
                         exclude_ws=ws,
                     )
 
             elif msg_type == "ambient_update":
-                # DM broadcasts ambient sound selection to all clients
-                if not is_spectator_conn:
+                # DM-only: broadcast ambient sound selection to all clients.
+                if is_dm_conn:
                     await session_hub.broadcast(
                         session_id,
                         {
@@ -1234,20 +1270,22 @@ async def websocket_endpoint(
                     )
 
             elif msg_type == "ooc_message":
+                # Use server-side identity to prevent player impersonation.
                 if not is_spectator_conn:
                     await session_hub.broadcast(
                         session_id,
                         {
                             "type": "ooc_broadcast",
-                            "player_id": data.get("player_id", player_id),
-                            "player_name": data.get("player_name", ""),
-                            "text": data.get("text", ""),
+                            "player_id": player_id,
+                            "player_name": player_name,
+                            "text": str(data.get("text", ""))[:1000],
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         },
                     )
 
             elif msg_type == "ready_check":
-                if not is_spectator_conn:
+                # DM-only: poll players for readiness.
+                if is_dm_conn:
                     await session_hub.broadcast(
                         session_id,
                         {
@@ -1258,12 +1296,13 @@ async def websocket_endpoint(
                     )
 
             elif msg_type == "ready_response":
+                # Use server-side identity to prevent impersonation.
                 await session_hub.broadcast(
                     session_id,
                     {
                         "type": "ready_response",
-                        "player_id": data.get("player_id", player_id),
-                        "player_name": data.get("player_name", ""),
+                        "player_id": player_id,
+                        "player_name": player_name,
                         "ready": bool(data.get("ready", False)),
                     },
                 )
@@ -1273,7 +1312,7 @@ async def websocket_endpoint(
 
             elif msg_type == "dm_secret_roll":
                 # DM-only: roll dice server-side, result sent only to the requesting socket
-                if not is_spectator_conn:
+                if is_dm_conn:
                     import re as _re
                     dice_str = data.get("dice", "1d20")
                     reason = data.get("reason", "")
@@ -1298,8 +1337,8 @@ async def websocket_endpoint(
                     })
 
             elif msg_type == "scene_marker":
-                # DM inserts a named scene break into the narrative log
-                if not is_spectator_conn:
+                # DM-only: inserts a named scene break into the narrative log
+                if is_dm_conn:
                     title = data.get("title", "New Scene")
                     marker_text = f"🎬 SCENE: {title}"
                     await session_hub.broadcast(session_id, {
@@ -1318,6 +1357,9 @@ async def websocket_endpoint(
                     await session_hub.broadcast(session_id, {**state.to_dict(), "type": "combat_update"})
 
             elif msg_type == "combat_reset_reactions":
+                # DM-only: reset all combatant reactions
+                if not is_dm_conn:
+                    continue
                 state = game_state_manager.get_combat(session_id)
                 if state and state.active:
                     for c in state.combatants:
@@ -1325,6 +1367,9 @@ async def websocket_endpoint(
                     await session_hub.broadcast(session_id, {**state.to_dict(), "type": "combat_update"})
 
             elif msg_type == "combat_legendary_action":
+                # DM-only: adjust legendary action counter
+                if not is_dm_conn:
+                    continue
                 c_name = data.get("name")
                 delta = int(data.get("delta", -1))
                 state = game_state_manager.get_combat(session_id)

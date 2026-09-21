@@ -390,3 +390,51 @@ class TestPendingRollOwnership:
         finally:
             _pending_roll_queues.pop((session_id, request_id), None)
             game_state_manager.resolve_pending_roll(session_id, request_id)
+
+
+# ---------------------------------------------------------------------------
+# Session turn serialization
+# ---------------------------------------------------------------------------
+
+
+class TestSessionTurnSerialization:
+    def test_same_session_uses_one_shared_turn_lock(self):
+        from backend.main import _get_session_turn_lock, _session_turn_locks
+
+        _session_turn_locks.pop("serialized-session", None)
+        first = _get_session_turn_lock("serialized-session")
+        second = _get_session_turn_lock("serialized-session")
+        other = _get_session_turn_lock("other-session")
+
+        assert first is second
+        assert first is not other
+        _session_turn_locks.pop("serialized-session", None)
+        _session_turn_locks.pop("other-session", None)
+
+    def test_session_turn_lock_serializes_waiters(self):
+        import asyncio
+        from backend.main import _get_session_turn_lock, _session_turn_locks
+
+        async def exercise():
+            session_id = "serialized-order"
+            _session_turn_locks.pop(session_id, None)
+            lock = _get_session_turn_lock(session_id)
+            order = []
+
+            async def turn(name, delay):
+                await asyncio.sleep(delay)
+                async with lock:
+                    order.append(f"{name}:start")
+                    await asyncio.sleep(0.01)
+                    order.append(f"{name}:end")
+
+            await asyncio.gather(turn("one", 0), turn("two", 0.001))
+            _session_turn_locks.pop(session_id, None)
+            return order
+
+        assert asyncio.run(exercise()) == [
+            "one:start",
+            "one:end",
+            "two:start",
+            "two:end",
+        ]

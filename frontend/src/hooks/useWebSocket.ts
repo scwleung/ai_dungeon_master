@@ -451,14 +451,14 @@ export function useWebSocket(sessionId: string | null) {
   const sendVoiceTranscript = useCallback(
     (transcript: string) => {
       const { settings } = storeRef.current
-      send({ type: 'voice_transcript', player_id: settings.playerId, text: transcript } as any)
+      send({ type: 'voice_transcript', player_id: settings.playerId, text: transcript })
     },
     [send]
   )
 
   const sendDiceImage = useCallback(
     (roll_request_id: string, frame_b64: string) => {
-      send({ type: 'dice_image', roll_request_id, image: frame_b64 } as any)
+      send({ type: 'dice_image', roll_request_id, image: frame_b64 })
     },
     [send]
   )

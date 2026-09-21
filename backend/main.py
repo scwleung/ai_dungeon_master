@@ -115,6 +115,10 @@ _RL_WINDOW = 60.0
 _campaign_cache: dict[str, tuple] = {}
 CAMPAIGN_CACHE_TTL = 30.0
 
+# Pending player-roll result queues must be shared across WebSocket connections:
+# the DM request is usually created on one player's socket and answered on another.
+_pending_roll_queues: dict[tuple[str, str], asyncio.Queue] = {}
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -701,9 +705,10 @@ async def websocket_endpoint(
     if is_spectator_conn:
         session_hub.mark_spectator(ws)
 
-    # Per-connection queue for awaiting player roll results
-    # key: roll_request_id, value: asyncio.Queue that receives the result dict
-    pending_roll_queues: dict[str, asyncio.Queue] = {}
+    # Track roll requests created by this connection so they can be cancelled
+    # if the initiating socket disconnects. Result queues themselves are global
+    # because the responding player normally uses a different WebSocket.
+    owned_roll_requests: set[str] = set()
 
     # ----------------------------------------------------------------
     # Tool-use callback (called by DM brain during streaming)
@@ -759,7 +764,8 @@ async def websocket_endpoint(
 
             # Create a queue to wait for the result
             result_queue: asyncio.Queue = asyncio.Queue()
-            pending_roll_queues[roll_request_id] = result_queue
+            _pending_roll_queues[(session_id, roll_request_id)] = result_queue
+            owned_roll_requests.add(roll_request_id)
 
             # Send dice_request to the target player
             request_payload = {
@@ -788,13 +794,15 @@ async def websocket_endpoint(
                 roll_result = await asyncio.wait_for(result_queue.get(), timeout=300.0)
             except asyncio.TimeoutError:
                 game_state_manager.resolve_pending_roll(session_id, roll_request_id)
-                pending_roll_queues.pop(roll_request_id, None)
+                _pending_roll_queues.pop((session_id, roll_request_id), None)
+                owned_roll_requests.discard(roll_request_id)
                 return (
                     f"Player {target_player_id} did not submit their {skill} roll "
                     f"in time. Assume a middling result for narrative purposes."
                 )
 
-            pending_roll_queues.pop(roll_request_id, None)
+            _pending_roll_queues.pop((session_id, roll_request_id), None)
+            owned_roll_requests.discard(roll_request_id)
 
             total = roll_result.get("total", 10)
             values = roll_result.get("values", [total])
@@ -956,10 +964,8 @@ async def websocket_endpoint(
             # ------------------------------------------------------------
             # join_session
             # ------------------------------------------------------------
-            if session_hub.is_spectator(ws) and msg_type in (
-                "player_action", "voice_transcript", "dice_image", "manual_roll", "dice_result"
-            ):
-                continue  # spectators cannot take actions
+            if session_hub.is_spectator(ws) and msg_type not in ("join_session", "pong"):
+                continue  # spectators are strictly read-only
 
             if msg_type == "join_session":
                 incoming_player_name = data.get("player_name", player_name)
@@ -1132,9 +1138,9 @@ async def websocket_endpoint(
                 await session_hub.broadcast(session_id, result_payload)
 
                 # If this was in response to a pending roll request, resolve it
-                if roll_request_id and roll_request_id in pending_roll_queues:
+                if roll_request_id and (session_id, roll_request_id) in _pending_roll_queues:
                     game_state_manager.resolve_pending_roll(session_id, roll_request_id)
-                    await pending_roll_queues[roll_request_id].put(
+                    await _pending_roll_queues[(session_id, roll_request_id)].put(
                         {
                             "total": total,
                             "values": values,
@@ -1165,9 +1171,9 @@ async def websocket_endpoint(
                 await session_hub.broadcast(session_id, result_payload)
 
                 # Resolve the pending roll if one is waiting
-                if roll_request_id and roll_request_id in pending_roll_queues:
+                if roll_request_id and (session_id, roll_request_id) in _pending_roll_queues:
                     game_state_manager.resolve_pending_roll(session_id, roll_request_id)
-                    await pending_roll_queues[roll_request_id].put(
+                    await _pending_roll_queues[(session_id, roll_request_id)].put(
                         {
                             "total": total,
                             "values": values,
@@ -1198,9 +1204,9 @@ async def websocket_endpoint(
                 await session_hub.broadcast(session_id, broadcast_payload)
 
                 # Resolve pending roll if applicable
-                if roll_request_id and roll_request_id in pending_roll_queues:
+                if roll_request_id and (session_id, roll_request_id) in _pending_roll_queues:
                     game_state_manager.resolve_pending_roll(session_id, roll_request_id)
-                    await pending_roll_queues[roll_request_id].put(
+                    await _pending_roll_queues[(session_id, roll_request_id)].put(
                         {
                             "total": total,
                             "values": values,
@@ -1362,12 +1368,15 @@ async def websocket_endpoint(
             game_state_manager.remove_player(
                 disconnected_session_id, disconnected_player_id
             )
-            # Cancel any pending roll queues so Claude doesn't hang
-            for queue in pending_roll_queues.values():
-                try:
-                    queue.put_nowait({"total": 10, "values": [10], "modifier": 0, "timeout": True})
-                except asyncio.QueueFull:
-                    pass
+            # Cancel roll requests initiated by this socket so Claude doesn't hang.
+            for roll_request_id in list(owned_roll_requests):
+                queue = _pending_roll_queues.pop((session_id, roll_request_id), None)
+                if queue is not None:
+                    try:
+                        queue.put_nowait({"total": 10, "values": [10], "modifier": 0, "timeout": True})
+                    except asyncio.QueueFull:
+                        pass
+            owned_roll_requests.clear()
 
             await session_hub.broadcast(
                 disconnected_session_id,

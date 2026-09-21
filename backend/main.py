@@ -119,6 +119,20 @@ CAMPAIGN_CACHE_TTL = 30.0
 # the DM request is usually created on one player's socket and answered on another.
 _pending_roll_queues: dict[tuple[str, str], asyncio.Queue] = {}
 
+# A campaign turn is a read-history -> save-action -> generate-DM -> save-response
+# transaction. Serialize that transaction per session so two players acting at
+# nearly the same time cannot generate competing DM responses from the same
+# stale history snapshot. asyncio.Lock is FIFO/fair for waiting tasks.
+_session_turn_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_session_turn_lock(session_id: str) -> asyncio.Lock:
+    lock = _session_turn_locks.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _session_turn_locks[session_id] = lock
+    return lock
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -1028,72 +1042,77 @@ async def websocket_endpoint(
                     )
                     continue
 
-                # Broadcast the player's action to all players
-                await session_hub.broadcast(
-                    session_id,
-                    {
-                        "type": "player_action",
-                        "player_id": player_id,
-                        "player_name": player_name,
-                        "text": action_text,
-                    },
-                )
-
-                # Load campaign, characters, and history BEFORE saving the player
-                # message so that _load_message_history sees an empty session on
-                # the very first turn and can inherit context from the previous
-                # session in this campaign. stream_response receives action_text
-                # as new_message and appends it internally.
-                campaign, char_list = await _load_campaign_and_characters(campaign_id)
-                if campaign is None:
-                    await session_hub.send_to_socket(
-                        ws,
-                        {"type": "error", "message": "Campaign not found."},
+                # Serialize the full narrative turn. Without this lock, two
+                # WebSocket handlers can both load the same history, save separate
+                # actions, and concurrently ask the DM to continue from stale state.
+                async with _get_session_turn_lock(session_id):
+                    # Broadcast only when this action actually begins processing,
+                    # preserving the same ordering players will see from the DM.
+                    await session_hub.broadcast(
+                        session_id,
+                        {
+                            "type": "player_action",
+                            "player_id": player_id,
+                            "player_name": player_name,
+                            "text": action_text,
+                        },
                     )
-                    continue
 
-                history = await _load_message_history(session_id)
+                    # Load campaign, characters, and history BEFORE saving the player
+                    # message so that _load_message_history sees an empty session on
+                    # the very first turn and can inherit context from the previous
+                    # session in this campaign. stream_response receives action_text
+                    # as new_message and appends it internally.
+                    campaign, char_list = await _load_campaign_and_characters(campaign_id)
+                    if campaign is None:
+                        await session_hub.send_to_socket(
+                            ws,
+                            {"type": "error", "message": "Campaign not found."},
+                        )
+                        continue
 
-                # Save player message to DB
-                await _save_message_to_db(
-                    session_id, "user", action_text, player_name=player_name
-                )
+                    history = await _load_message_history(session_id)
 
-                # Stream the DM response
-                full_response_parts: list[str] = []
-
-                async def _text_gen():
-                    async for chunk in dm.stream_response(
-                        campaign=campaign,
-                        characters=char_list,
-                        message_history=history,
-                        new_message=action_text,
-                        on_tool_use=on_tool_use,
-                        in_combat=lambda: bool(game_state_manager._combat.get(session_id)),
-                    ):
-                        full_response_parts.append(chunk)
-                        yield chunk
-
-                try:
-                    await session_hub.broadcast_dm_stream(session_id, _text_gen())
-                except Exception as exc:
-                    await session_hub.send_to_socket(
-                        ws,
-                        {"type": "error", "message": f"DM brain error: {exc}"},
-                    )
-                    continue
-
-                # Save DM response to DB
-                full_response = "".join(full_response_parts)
-                if full_response:
+                    # Save player message to DB
                     await _save_message_to_db(
-                        session_id, "assistant", full_response, player_name=None
+                        session_id, "user", action_text, player_name=player_name
                     )
-                    # Roll up old messages into a summary when window is full
+
+                    # Stream the DM response
+                    full_response_parts: list[str] = []
+
+                    async def _text_gen():
+                        async for chunk in dm.stream_response(
+                            campaign=campaign,
+                            characters=char_list,
+                            message_history=history,
+                            new_message=action_text,
+                            on_tool_use=on_tool_use,
+                            in_combat=lambda: bool(game_state_manager._combat.get(session_id)),
+                        ):
+                            full_response_parts.append(chunk)
+                            yield chunk
+
                     try:
-                        await _maybe_summarize_session(session_id)
-                    except Exception:
-                        pass
+                        await session_hub.broadcast_dm_stream(session_id, _text_gen())
+                    except Exception as exc:
+                        await session_hub.send_to_socket(
+                            ws,
+                            {"type": "error", "message": f"DM brain error: {exc}"},
+                        )
+                        continue
+
+                    # Save DM response to DB
+                    full_response = "".join(full_response_parts)
+                    if full_response:
+                        await _save_message_to_db(
+                            session_id, "assistant", full_response, player_name=None
+                        )
+                        # Roll up old messages into a summary when window is full
+                        try:
+                            await _maybe_summarize_session(session_id)
+                        except Exception:
+                            pass
 
             # ------------------------------------------------------------
             # dice_image → vision detection

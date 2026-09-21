@@ -764,7 +764,7 @@ async def websocket_endpoint(
 
             # Create a queue to wait for the result
             result_queue: asyncio.Queue = asyncio.Queue()
-_pending_roll_queues[(session_id, roll_request_id)] = result_queue
+            _pending_roll_queues[(session_id, roll_request_id)] = result_queue
             owned_roll_requests.add(roll_request_id)
 
             # Send dice_request to the target player
@@ -794,14 +794,14 @@ _pending_roll_queues[(session_id, roll_request_id)] = result_queue
                 roll_result = await asyncio.wait_for(result_queue.get(), timeout=300.0)
             except asyncio.TimeoutError:
                 game_state_manager.resolve_pending_roll(session_id, roll_request_id)
-_pending_roll_queues.pop((session_id, roll_request_id), None)
+                _pending_roll_queues.pop((session_id, roll_request_id), None)
                 owned_roll_requests.discard(roll_request_id)
                 return (
                     f"Player {target_player_id} did not submit their {skill} roll "
                     f"in time. Assume a middling result for narrative purposes."
                 )
 
-_pending_roll_queues.pop((session_id, roll_request_id), None)
+            _pending_roll_queues.pop((session_id, roll_request_id), None)
             owned_roll_requests.discard(roll_request_id)
 
             total = roll_result.get("total", 10)

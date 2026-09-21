@@ -211,19 +211,20 @@ export function useWebSocket(sessionId: string | null) {
         }
 
         case 'state_update': {
-          if (msg.characters) {
-            msg.characters.forEach((char) => {
-              const existing = s.characters.find((c) => c.id === char.id)
-              if (existing) {
-                // Update in store without re-persisting (came from server)
-                useGameStore.setState((state) => ({
-                  characters: state.characters.map((c) =>
-                    c.id === char.id ? char : c
-                  ),
-                }))
-              }
-            })
-          }
+          const updatedCharacters = msg.character
+            ? [msg.character]
+            : (msg.characters ?? [])
+          updatedCharacters.forEach((char) => {
+            const existing = s.characters.find((c) => c.id === char.id)
+            if (existing) {
+              // Update in store without re-persisting (came from server)
+              useGameStore.setState((state) => ({
+                characters: state.characters.map((c) =>
+                  c.id === char.id ? char : c
+                ),
+              }))
+            }
+          })
           if (msg.world_state && s.activeCampaign) {
             useGameStore.setState((state) => ({
               activeCampaign: state.activeCampaign
@@ -450,14 +451,14 @@ export function useWebSocket(sessionId: string | null) {
   const sendVoiceTranscript = useCallback(
     (transcript: string) => {
       const { settings } = storeRef.current
-      send({ type: 'voice_transcript', player_id: settings.playerId, transcript })
+      send({ type: 'voice_transcript', player_id: settings.playerId, text: transcript } as any)
     },
     [send]
   )
 
   const sendDiceImage = useCallback(
     (roll_request_id: string, frame_b64: string) => {
-      send({ type: 'dice_image', roll_request_id, frame_b64 })
+      send({ type: 'dice_image', roll_request_id, image: frame_b64 } as any)
     },
     [send]
   )

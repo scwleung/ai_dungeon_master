@@ -786,8 +786,9 @@ async def websocket_endpoint(
                 request_payload["disadvantage"] = True
 
             await session_hub.send_to_player(session_id, target_player_id, request_payload)
-            # Also broadcast so all players see the request
-            await session_hub.broadcast(session_id, request_payload)
+            # The request is actionable only by the target player. Broadcasting
+            # it made every client show the same pending-roll UI and allowed the
+            # wrong player to submit a result for the request.
 
             # Wait for player to submit their roll (timeout: 5 minutes)
             try:
@@ -1138,7 +1139,15 @@ async def websocket_endpoint(
                 await session_hub.broadcast(session_id, result_payload)
 
                 # If this was in response to a pending roll request, resolve it
-                if roll_request_id and (session_id, roll_request_id) in _pending_roll_queues:
+                pending_roll = (
+                    game_state_manager.get_pending_roll(session_id, roll_request_id)
+                    if roll_request_id else None
+                )
+                if (
+                    pending_roll is not None
+                    and pending_roll.player_id == player_id
+                    and (session_id, roll_request_id) in _pending_roll_queues
+                ):
                     game_state_manager.resolve_pending_roll(session_id, roll_request_id)
                     await _pending_roll_queues[(session_id, roll_request_id)].put(
                         {
@@ -1171,7 +1180,15 @@ async def websocket_endpoint(
                 await session_hub.broadcast(session_id, result_payload)
 
                 # Resolve the pending roll if one is waiting
-                if roll_request_id and (session_id, roll_request_id) in _pending_roll_queues:
+                pending_roll = (
+                    game_state_manager.get_pending_roll(session_id, roll_request_id)
+                    if roll_request_id else None
+                )
+                if (
+                    pending_roll is not None
+                    and pending_roll.player_id == player_id
+                    and (session_id, roll_request_id) in _pending_roll_queues
+                ):
                     game_state_manager.resolve_pending_roll(session_id, roll_request_id)
                     await _pending_roll_queues[(session_id, roll_request_id)].put(
                         {
@@ -1204,7 +1221,15 @@ async def websocket_endpoint(
                 await session_hub.broadcast(session_id, broadcast_payload)
 
                 # Resolve pending roll if applicable
-                if roll_request_id and (session_id, roll_request_id) in _pending_roll_queues:
+                pending_roll = (
+                    game_state_manager.get_pending_roll(session_id, roll_request_id)
+                    if roll_request_id else None
+                )
+                if (
+                    pending_roll is not None
+                    and pending_roll.player_id == player_id
+                    and (session_id, roll_request_id) in _pending_roll_queues
+                ):
                     game_state_manager.resolve_pending_roll(session_id, roll_request_id)
                     await _pending_roll_queues[(session_id, roll_request_id)].put(
                         {

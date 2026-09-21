@@ -186,8 +186,8 @@ export interface WsVoiceTranscript {
   type: 'voice_transcript'
   /** The player's unique session identifier. */
   player_id: string
-  /** Text produced by the STT engine. */
-  transcript: string
+  /** Text produced by the STT engine. Uses the same wire field as player_action. */
+  text: string
 }
 
 /** Client message containing a camera frame for Claude Vision dice detection. */
@@ -196,7 +196,7 @@ export interface WsDiceImage {
   /** Correlates this frame to the pending roll request. */
   roll_request_id: string
   /** JPEG image encoded as a base64 string (no data-URI prefix). */
-  frame_b64: string
+  image: string
 }
 
 /** Client message carrying a manually-entered dice roll result. */
@@ -323,7 +323,9 @@ export interface WsDiceRequest {
 /** Partial state sync pushed from the server after world or character changes. */
 export interface WsStateUpdate {
   type: 'state_update'
-  /** Updated character records; only fields that changed may be present. */
+  /** Single updated character broadcast by the server's update_character tool. */
+  character?: Character
+  /** Batch form retained for state-sync endpoints and backwards compatibility. */
   characters?: Character[]
   /** Merged updates to the campaign's world_state key-value map. */
   world_state?: Record<string, string>

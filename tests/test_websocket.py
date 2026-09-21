@@ -336,3 +336,57 @@ class TestDisconnect:
 
         assert msg["type"] == "player_left"
         assert msg["player_id"] == "p2"
+
+
+# ---------------------------------------------------------------------------
+# Pending roll ownership
+# ---------------------------------------------------------------------------
+
+
+class TestPendingRollOwnership:
+    def test_wrong_player_cannot_resolve_pending_roll(self):
+        """A roll request for p1 must not be resolvable by p2."""
+        from backend.main import _pending_roll_queues
+        from backend.services.game_state import PendingRoll, game_state_manager
+        import asyncio
+
+        session_id = "sess-roll-owner"
+        request_id = "req-owner"
+        game_state_manager.add_pending_roll(
+            session_id,
+            PendingRoll(
+                roll_request_id=request_id,
+                player_id="p1",
+                dice="1d20",
+                skill="Perception",
+                dc=12,
+            ),
+        )
+        queue = asyncio.Queue()
+        _pending_roll_queues[(session_id, request_id)] = queue
+
+        try:
+            with ExitStack() as s:
+                for p in _base_patches():
+                    s.enter_context(p)
+                with TestClient(app) as client:
+                    with client.websocket_connect(
+                        f"/ws/{session_id}?player_id=p2&player_name=Bob"
+                    ) as ws:
+                        ws.send_json({"type": "join_session", "player_name": "Bob"})
+                        ws.receive_json()
+                        ws.send_json({
+                            "type": "manual_roll",
+                            "roll_request_id": request_id,
+                            "total": 20,
+                            "values": [20],
+                            "modifier": 0,
+                        })
+                        msg = ws.receive_json()
+
+            assert msg["type"] == "dice_result"
+            assert queue.empty()
+            assert game_state_manager.get_pending_roll(session_id, request_id) is not None
+        finally:
+            _pending_roll_queues.pop((session_id, request_id), None)
+            game_state_manager.resolve_pending_roll(session_id, request_id)

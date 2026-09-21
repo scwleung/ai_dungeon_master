@@ -151,6 +151,9 @@ export function useWebSocket(sessionId: string | null) {
         }
 
         case 'dice_request': {
+          // Defensive check: only the requested player should ever receive this
+          // message, but ignore it if a stale/misrouted payload arrives.
+          if (msg.player_id !== s.settings.playerId) break
           s.setPendingRoll({
             roll_request_id: msg.roll_request_id,
             dice: msg.dice,

@@ -1288,13 +1288,14 @@ async def websocket_endpoint(
                     )
 
             elif msg_type == "voice_recording":
-                # Relay recording state to all other clients in the room
+                # Identity is connection-bound; never trust a client-supplied
+                # player_id for broadcasts attributed to this socket.
                 if not is_spectator_conn:
                     await session_hub.broadcast(
                         session_id,
                         {
                             "type": "voice_recording",
-                            "player_id": data.get("player_id", player_id),
+                            "player_id": player_id,
                             "active": bool(data.get("active", False)),
                         },
                         exclude_ws=ws,
@@ -1317,8 +1318,8 @@ async def websocket_endpoint(
                         session_id,
                         {
                             "type": "ooc_broadcast",
-                            "player_id": data.get("player_id", player_id),
-                            "player_name": data.get("player_name", ""),
+                            "player_id": player_id,
+                            "player_name": player_name,
                             "text": data.get("text", ""),
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         },
@@ -1340,8 +1341,8 @@ async def websocket_endpoint(
                     session_id,
                     {
                         "type": "ready_response",
-                        "player_id": data.get("player_id", player_id),
-                        "player_name": data.get("player_name", ""),
+                        "player_id": player_id,
+                        "player_name": player_name,
                         "ready": bool(data.get("ready", False)),
                     },
                 )

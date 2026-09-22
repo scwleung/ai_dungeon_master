@@ -989,7 +989,7 @@ async def generate_shop(campaign_id: str, body: dict, db: AsyncSession = Depends
 async def get_dm_notes(
     session_id: str,
     db: AsyncSession = Depends(get_db),
-    _campaign: Campaign = Depends(require_campaign_access),
+    _auth: None = Depends(require_session_access),
 ):
     result = await db.execute(select(GameSession).where(GameSession.id == session_id))
     session = result.scalar_one_or_none()
@@ -1007,7 +1007,7 @@ async def update_dm_notes(
     session_id: str,
     payload: DMNotesUpdate,
     db: AsyncSession = Depends(get_db),
-    _campaign: Campaign = Depends(require_campaign_access),
+    _auth: None = Depends(require_session_access),
 ):
     result = await db.execute(select(GameSession).where(GameSession.id == session_id))
     session = result.scalar_one_or_none()

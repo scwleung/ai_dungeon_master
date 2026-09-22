@@ -1011,8 +1011,12 @@ async def websocket_endpoint(
                 continue  # spectators are strictly read-only
 
             if msg_type == "join_session":
-                incoming_player_name = data.get("player_name", player_name)
-                game_state_manager.add_player(session_id, player_id, incoming_player_name)
+                incoming_player_name = str(data.get("player_name", player_name)).strip()[:100] or player_name
+                # The join message may choose this socket's display name once;
+                # subsequent messages are attributed to that connection-bound
+                # identity rather than trusting repeated payload fields.
+                player_name = incoming_player_name
+                game_state_manager.add_player(session_id, player_id, player_name)
 
                 await session_hub.send_to_socket(
                     ws,
@@ -1287,14 +1291,56 @@ async def websocket_endpoint(
                         }
                     )
 
+            elif msg_type == "update_character":
+                # Direct character-sheet mutations (for example expending a
+                # feature use) come from the owning player's UI.  Do not allow
+                # the client to edit an arbitrary character in the campaign.
+                character_id = data.get("character_id", "")
+                feature_use = data.get("feature_use")
+                if not character_id or not isinstance(feature_use, dict):
+                    await session_hub.send_to_socket(
+                        ws,
+                        {"type": "error", "message": "Invalid character update."},
+                    )
+                    continue
+
+                campaign, char_list = await _load_campaign_and_characters(campaign_id)
+                owned_character = next(
+                    (
+                        char for char in char_list
+                        if str(char.id) == str(character_id)
+                        and getattr(char, "player_name", None) == player_name
+                    ),
+                    None,
+                )
+                if owned_character is None:
+                    await session_hub.send_to_socket(
+                        ws,
+                        {"type": "error", "message": "Character update not permitted."},
+                    )
+                    continue
+
+                summary, updated_char = await update_character_in_db(
+                    character_id,
+                    {"character_id": character_id, "feature_use": feature_use},
+                )
+                if updated_char is not None:
+                    from backend.models.character import CharacterResponse
+                    char_data = CharacterResponse.model_validate(updated_char).model_dump()
+                    await session_hub.broadcast(
+                        session_id,
+                        {"type": "state_update", "character": char_data},
+                    )
+
             elif msg_type == "voice_recording":
-                # Relay recording state to all other clients in the room
+                # Identity is connection-bound; never trust a client-supplied
+                # player_id for broadcasts attributed to this socket.
                 if not is_spectator_conn:
                     await session_hub.broadcast(
                         session_id,
                         {
                             "type": "voice_recording",
-                            "player_id": data.get("player_id", player_id),
+                            "player_id": player_id,
                             "active": bool(data.get("active", False)),
                         },
                         exclude_ws=ws,
@@ -1317,8 +1363,8 @@ async def websocket_endpoint(
                         session_id,
                         {
                             "type": "ooc_broadcast",
-                            "player_id": data.get("player_id", player_id),
-                            "player_name": data.get("player_name", ""),
+                            "player_id": player_id,
+                            "player_name": player_name,
                             "text": data.get("text", ""),
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         },
@@ -1340,8 +1386,8 @@ async def websocket_endpoint(
                     session_id,
                     {
                         "type": "ready_response",
-                        "player_id": data.get("player_id", player_id),
-                        "player_name": data.get("player_name", ""),
+                        "player_id": player_id,
+                        "player_name": player_name,
                         "ready": bool(data.get("ready", False)),
                     },
                 )

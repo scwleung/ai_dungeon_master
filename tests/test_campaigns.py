@@ -492,3 +492,52 @@ async def test_dm_notes_use_session_campaign_access_code(client):
     )
     assert loaded.status_code == 200
     assert loaded.json()["dm_notes"] == "secret"
+
+
+# ---------------------------------------------------------------------------
+# AI generation endpoint authorization
+# ---------------------------------------------------------------------------
+
+
+async def test_ai_loot_requires_campaign_access_code(client):
+    campaign = await make_campaign(client)
+
+    denied = await client.post(
+        f"/api/campaigns/{campaign['id']}/loot",
+        json={"cr": 1, "environment": "dungeon", "count": 1},
+    )
+    assert denied.status_code == 403
+
+
+async def test_ai_trap_requires_campaign_access_code(client):
+    campaign = await make_campaign(client)
+
+    denied = await client.post(
+        f"/api/campaigns/{campaign['id']}/trap",
+        json={"cr": 1, "location": "hallway"},
+    )
+    assert denied.status_code == 403
+
+
+async def test_ai_name_generation_requires_campaign_access_code(client):
+    campaign = await make_campaign(client)
+
+    denied = await client.post(
+        f"/api/campaigns/{campaign['id']}/generate-names",
+        json={"race": "human", "count": 3},
+    )
+    assert denied.status_code == 403
+
+
+async def test_session_recap_requires_campaign_access_code(client):
+    campaign = await make_campaign(client)
+    session_r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
+    session_id = session_r.json()["id"]
+
+    denied = await client.post(
+        f"/api/campaigns/sessions/{session_id}/recap",
+    )
+    assert denied.status_code == 403

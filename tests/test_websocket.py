@@ -497,3 +497,54 @@ class TestSessionLifecycleCleanup:
                     assert game_state_manager.get_session(session_id) is not None
 
         game_state_manager.end_session(session_id)
+
+
+# ---------------------------------------------------------------------------
+# Connection-bound identity
+# ---------------------------------------------------------------------------
+
+
+class TestConnectionIdentity:
+    def test_ooc_message_cannot_spoof_another_player(self):
+        with ExitStack() as s:
+            for p in _base_patches():
+                s.enter_context(p)
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    "/ws/identity-ooc?player_id=p1&player_name=Alice"
+                ) as ws:
+                    ws.send_json({"type": "join_session", "player_name": "Alice"})
+                    ws.receive_json()
+                    ws.send_json({
+                        "type": "ooc_message",
+                        "player_id": "p2",
+                        "player_name": "Mallory",
+                        "text": "hello",
+                    })
+                    msg = ws.receive_json()
+
+        assert msg["type"] == "ooc_broadcast"
+        assert msg["player_id"] == "p1"
+        assert msg["player_name"] == "Alice"
+
+    def test_ready_response_cannot_spoof_another_player(self):
+        with ExitStack() as s:
+            for p in _base_patches():
+                s.enter_context(p)
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    "/ws/identity-ready?player_id=p1&player_name=Alice"
+                ) as ws:
+                    ws.send_json({"type": "join_session", "player_name": "Alice"})
+                    ws.receive_json()
+                    ws.send_json({
+                        "type": "ready_response",
+                        "player_id": "p2",
+                        "player_name": "Mallory",
+                        "ready": True,
+                    })
+                    msg = ws.receive_json()
+
+        assert msg["type"] == "ready_response"
+        assert msg["player_id"] == "p1"
+        assert msg["player_name"] == "Alice"

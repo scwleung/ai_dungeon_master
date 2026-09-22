@@ -1287,6 +1287,47 @@ async def websocket_endpoint(
                         }
                     )
 
+            elif msg_type == "update_character":
+                # Direct character-sheet mutations (for example expending a
+                # feature use) come from the owning player's UI.  Do not allow
+                # the client to edit an arbitrary character in the campaign.
+                character_id = data.get("character_id", "")
+                feature_use = data.get("feature_use")
+                if not character_id or not isinstance(feature_use, dict):
+                    await session_hub.send_to_socket(
+                        ws,
+                        {"type": "error", "message": "Invalid character update."},
+                    )
+                    continue
+
+                campaign, char_list = await _load_campaign_and_characters(campaign_id)
+                owned_character = next(
+                    (
+                        char for char in char_list
+                        if str(char.id) == str(character_id)
+                        and getattr(char, "player_name", None) == player_name
+                    ),
+                    None,
+                )
+                if owned_character is None:
+                    await session_hub.send_to_socket(
+                        ws,
+                        {"type": "error", "message": "Character update not permitted."},
+                    )
+                    continue
+
+                summary, updated_char = await update_character_in_db(
+                    character_id,
+                    {"character_id": character_id, "feature_use": feature_use},
+                )
+                if updated_char is not None:
+                    from backend.models.character import CharacterResponse
+                    char_data = CharacterResponse.model_validate(updated_char).model_dump()
+                    await session_hub.broadcast(
+                        session_id,
+                        {"type": "state_update", "character": char_data},
+                    )
+
             elif msg_type == "voice_recording":
                 # Identity is connection-bound; never trust a client-supplied
                 # player_id for broadcasts attributed to this socket.

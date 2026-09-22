@@ -930,7 +930,11 @@ class LootRequest(BaseModel):
 
 
 @router.post("/{campaign_id}/loot")
-async def generate_loot_endpoint(campaign_id: str, payload: LootRequest):
+async def generate_loot_endpoint(
+    campaign_id: str,
+    payload: LootRequest,
+    _campaign: Campaign = Depends(require_campaign_access),
+):
     """Generate treasure loot appropriate for the given CR and environment."""
     from backend.services.dm_brain import DungeonMaster
     dm_instance = DungeonMaster()
@@ -939,7 +943,12 @@ async def generate_loot_endpoint(campaign_id: str, payload: LootRequest):
 
 
 @router.post("/{campaign_id}/trap")
-async def generate_trap(campaign_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+async def generate_trap(
+    campaign_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
     campaign = await db.get(Campaign, campaign_id)
     if not campaign:
         raise HTTPException(status_code=404)
@@ -953,7 +962,12 @@ async def generate_trap(campaign_id: str, body: dict, db: AsyncSession = Depends
 
 
 @router.post("/{campaign_id}/puzzle")
-async def generate_puzzle(campaign_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+async def generate_puzzle(
+    campaign_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
     campaign = await db.get(Campaign, campaign_id)
     if not campaign:
         raise HTTPException(status_code=404)
@@ -967,7 +981,12 @@ async def generate_puzzle(campaign_id: str, body: dict, db: AsyncSession = Depen
 
 
 @router.post("/{campaign_id}/shop")
-async def generate_shop(campaign_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+async def generate_shop(
+    campaign_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _campaign: Campaign = Depends(require_campaign_access),
+):
     campaign = await db.get(Campaign, campaign_id)
     if not campaign:
         raise HTTPException(status_code=404)
@@ -1085,7 +1104,11 @@ class NameGenRequest(BaseModel):
 
 
 @router.post("/{campaign_id}/generate-names")
-async def generate_npc_names(campaign_id: str, payload: NameGenRequest):
+async def generate_npc_names(
+    campaign_id: str,
+    payload: NameGenRequest,
+    _campaign: Campaign = Depends(require_campaign_access),
+):
     """Generate NPC names for the given race using Claude Haiku."""
     prompt = (
         f"Generate exactly {payload.count} distinct fantasy NPC names for a {payload.race} "
@@ -1202,7 +1225,11 @@ async def delete_table(
 
 
 @router.post("/sessions/{session_id}/recap")
-async def generate_recap(session_id: str, db: AsyncSession = Depends(get_db)):
+async def generate_recap(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(require_session_access),
+):
     """Generate a dramatic 'Previously on...' recap for a session using Claude."""
     session = await db.get(GameSession, session_id)
     if not session:

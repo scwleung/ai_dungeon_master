@@ -1011,8 +1011,12 @@ async def websocket_endpoint(
                 continue  # spectators are strictly read-only
 
             if msg_type == "join_session":
-                incoming_player_name = data.get("player_name", player_name)
-                game_state_manager.add_player(session_id, player_id, incoming_player_name)
+                incoming_player_name = str(data.get("player_name", player_name)).strip()[:100] or player_name
+                # The join message may choose this socket's display name once;
+                # subsequent messages are attributed to that connection-bound
+                # identity rather than trusting repeated payload fields.
+                player_name = incoming_player_name
+                game_state_manager.add_player(session_id, player_id, player_name)
 
                 await session_hub.send_to_socket(
                     ws,

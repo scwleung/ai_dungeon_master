@@ -145,14 +145,10 @@ export const api = {
       request<{ data: Session }>('PUT', `/api/campaigns/sessions/${sessionId}/end`),
     /** Fetch the collaborative notes for a session. */
     getNotes: (sessionId: string) =>
-      fetch(`/api/campaigns/sessions/${sessionId}/notes`).then((r) => r.json()) as Promise<{ session_id: string; notes: string }>,
+      request<{ session_id: string; notes: string }>('GET', `/api/campaigns/sessions/${sessionId}/notes`),
     /** Persist updated collaborative notes for a session. */
     updateNotes: (sessionId: string, notes: string) =>
-      fetch(`/api/campaigns/sessions/${sessionId}/notes`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes }),
-      }).then((r) => r.json()) as Promise<{ session_id: string; notes: string }>,
+      request<{ session_id: string; notes: string }>('PUT', `/api/campaigns/sessions/${sessionId}/notes`, { notes }),
     /** Generate a recap for a session. */
     generateRecap: (sessionId: number) =>
       request<unknown>('POST', `/sessions/${sessionId}/recap`),

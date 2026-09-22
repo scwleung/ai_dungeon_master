@@ -435,3 +435,60 @@ async def test_delete_campaign_cascades_to_sessions(client):
     # Sessions for the deleted campaign should 404
     r = await client.get(f"/api/campaigns/{campaign['id']}/sessions")
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Session notes / DM notes authorization
+# ---------------------------------------------------------------------------
+
+
+async def test_update_session_notes_requires_access_code(client):
+    campaign = await make_campaign(client)
+    session_r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
+    session_id = session_r.json()["id"]
+
+    denied = await client.put(
+        f"/api/campaigns/sessions/{session_id}/notes",
+        json={"notes": "unauthorized"},
+    )
+    assert denied.status_code == 403
+
+    allowed = await client.put(
+        f"/api/campaigns/sessions/{session_id}/notes",
+        json={"notes": "authorized"},
+        headers=auth(campaign),
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["notes"] == "authorized"
+
+
+async def test_dm_notes_use_session_campaign_access_code(client):
+    campaign = await make_campaign(client)
+    session_r = await client.post(
+        f"/api/campaigns/{campaign['id']}/sessions",
+        headers=auth(campaign),
+    )
+    session_id = session_r.json()["id"]
+
+    denied = await client.get(
+        f"/api/campaigns/sessions/{session_id}/dm-notes",
+        headers={"X-Access-Code": "wrong-code"},
+    )
+    assert denied.status_code == 403
+
+    saved = await client.put(
+        f"/api/campaigns/sessions/{session_id}/dm-notes",
+        json={"dm_notes": "secret"},
+        headers=auth(campaign),
+    )
+    assert saved.status_code == 200
+
+    loaded = await client.get(
+        f"/api/campaigns/sessions/{session_id}/dm-notes",
+        headers=auth(campaign),
+    )
+    assert loaded.status_code == 200
+    assert loaded.json()["dm_notes"] == "secret"

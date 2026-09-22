@@ -548,3 +548,48 @@ class TestConnectionIdentity:
         assert msg["type"] == "ready_response"
         assert msg["player_id"] == "p1"
         assert msg["player_name"] == "Alice"
+
+
+# ---------------------------------------------------------------------------
+# DM role enforcement
+# ---------------------------------------------------------------------------
+
+
+class TestDMRoleEnforcement:
+    def test_player_cannot_use_dm_secret_roll(self):
+        with ExitStack() as s:
+            for p in _base_patches():
+                s.enter_context(p)
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    "/ws/player-no-dm?player_id=p1&player_name=Alice"
+                ) as ws:
+                    ws.send_json({"type": "join_session", "player_name": "Alice"})
+                    joined = ws.receive_json()
+                    assert joined.get("is_dm") is False
+
+                    ws.send_json({
+                        "type": "dm_secret_roll",
+                        "dice": "1d20",
+                        "reason": "spoofed",
+                    })
+                    msg = ws.receive_json()
+
+        assert msg["type"] == "error"
+        assert msg["message"] == "DM access required."
+
+    def test_player_cannot_send_scene_marker(self):
+        with ExitStack() as s:
+            for p in _base_patches():
+                s.enter_context(p)
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    "/ws/player-no-scene?player_id=p1&player_name=Alice"
+                ) as ws:
+                    ws.send_json({"type": "join_session", "player_name": "Alice"})
+                    ws.receive_json()
+                    ws.send_json({"type": "scene_marker", "title": "Forged scene"})
+                    msg = ws.receive_json()
+
+        assert msg["type"] == "error"
+        assert msg["message"] == "DM access required."

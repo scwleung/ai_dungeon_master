@@ -372,6 +372,8 @@ export interface WsJoined {
   player_name: string
   /** Whether this connection is in spectator (read-only) mode. */
   is_spectator?: boolean
+  /** Whether the server authenticated this connection for DM-only controls. */
+  is_dm?: boolean
 }
 
 /** A single room in the procedurally generated dungeon map. */

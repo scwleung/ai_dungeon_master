@@ -438,3 +438,62 @@ class TestSessionTurnSerialization:
             "two:start",
             "two:end",
         ]
+
+
+# ---------------------------------------------------------------------------
+# Session lifecycle cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestSessionLifecycleCleanup:
+    def test_last_disconnect_releases_process_local_session_state(self):
+        import asyncio
+        from backend.main import (
+            _cleanup_inactive_session_state,
+            _get_session_turn_lock,
+            _pending_roll_queues,
+            _session_turn_locks,
+        )
+        from backend.services.game_state import PendingRoll, game_state_manager
+
+        session_id = "cleanup-session"
+        request_id = "cleanup-roll"
+        game_state_manager.add_player(session_id, "p1", "Alice")
+        game_state_manager.start_combat(
+            session_id,
+            [{"name": "Goblin", "initiative": 10, "hp": 7}],
+        )
+        game_state_manager.add_pending_roll(
+            session_id,
+            PendingRoll(request_id, "p1", "1d20", "Perception", 10),
+        )
+        queue = asyncio.Queue()
+        _pending_roll_queues[(session_id, request_id)] = queue
+        _get_session_turn_lock(session_id)
+
+        _cleanup_inactive_session_state(session_id)
+
+        assert game_state_manager.get_session(session_id) is None
+        assert game_state_manager.get_combat(session_id).active is False
+        assert (session_id, request_id) not in _pending_roll_queues
+        assert session_id not in _session_turn_locks
+        assert queue.get_nowait()["timeout"] is True
+
+    def test_cleanup_does_not_run_while_socket_remains_connected(self):
+        from backend.main import _cleanup_inactive_session_state
+        from backend.services.game_state import game_state_manager
+
+        session_id = "cleanup-connected"
+        game_state_manager.add_player(session_id, "p1", "Alice")
+
+        with ExitStack() as s:
+            for p in _base_patches():
+                s.enter_context(p)
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    f"/ws/{session_id}?player_id=p2&player_name=Bob"
+                ) as ws:
+                    _cleanup_inactive_session_state(session_id)
+                    assert game_state_manager.get_session(session_id) is not None
+
+        game_state_manager.end_session(session_id)

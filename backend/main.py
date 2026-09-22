@@ -133,6 +133,32 @@ def _get_session_turn_lock(session_id: str) -> asyncio.Lock:
         _session_turn_locks[session_id] = lock
     return lock
 
+
+def _cleanup_inactive_session_state(session_id: str) -> None:
+    """Release process-local state once the last socket leaves a session."""
+    if session_hub.get_player_count(session_id) != 0:
+        return
+
+    game_state_manager.end_session(session_id)
+    game_state_manager.end_combat(session_id)
+
+    lock = _session_turn_locks.get(session_id)
+    # A disconnected socket may still own the lock while its handler unwinds.
+    # Only remove an idle lock; the final holder will retry cleanup in finally.
+    if lock is not None and not lock.locked():
+        _session_turn_locks.pop(session_id, None)
+
+    for key, queue in list(_pending_roll_queues.items()):
+        if key[0] != session_id:
+            continue
+        _pending_roll_queues.pop(key, None)
+        try:
+            queue.put_nowait(
+                {"total": 10, "values": [10], "modifier": 0, "timeout": True}
+            )
+        except asyncio.QueueFull:
+            pass
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -151,6 +177,8 @@ async def lifespan(app: FastAPI):
     await run_migrations(async_engine)
     yield
     await session_hub.close_all()
+    _pending_roll_queues.clear()
+    _session_turn_locks.clear()
 
 
 app = FastAPI(
@@ -1430,6 +1458,7 @@ async def websocket_endpoint(
                     "player_name": player_name,
                 },
             )
+            _cleanup_inactive_session_state(disconnected_session_id)
 
 
 # ---------------------------------------------------------------------------

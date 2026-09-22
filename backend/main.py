@@ -720,6 +720,7 @@ async def websocket_endpoint(
     # Look up which campaign this session belongs to and verify access code
     campaign_id: Optional[str] = None
     is_spectator_conn = False
+    is_dm_conn = False
     async with AsyncSessionLocal() as db:
         session_result = await db.execute(
             select(GameSession).where(GameSession.id == session_id)
@@ -738,8 +739,13 @@ async def websocket_endpoint(
                 elif campaign_code and not hmac.compare_digest(campaign_code, access_code):
                     await ws.close(code=4403, reason="Invalid access code")
                     return
+                elif campaign_code and access_code:
+                    # Possession of the campaign write token is the existing
+                    # server-side credential used by REST DM/admin controls.
+                    is_dm_conn = True
                 elif not campaign_code and access_code:
-                    # Campaign has no code; any provided code is accepted
+                    # Legacy campaigns without a code cannot establish a
+                    # verifiable DM role from an arbitrary supplied value.
                     pass
 
     # Auth passed — register this socket in the room now.
@@ -1010,6 +1016,21 @@ async def websocket_endpoint(
             if session_hub.is_spectator(ws) and msg_type not in ("join_session", "pong"):
                 continue  # spectators are strictly read-only
 
+            dm_only_messages = {
+                "ambient_update",
+                "ready_check",
+                "dm_secret_roll",
+                "scene_marker",
+                "combat_reset_reactions",
+                "combat_legendary_action",
+            }
+            if msg_type in dm_only_messages and not is_dm_conn:
+                await session_hub.send_to_socket(
+                    ws,
+                    {"type": "error", "message": "DM access required."},
+                )
+                continue
+
             if msg_type == "join_session":
                 incoming_player_name = str(data.get("player_name", player_name)).strip()[:100] or player_name
                 # The join message may choose this socket's display name once;
@@ -1026,6 +1047,7 @@ async def websocket_endpoint(
                         "player_id": player_id,
                         "player_name": incoming_player_name,
                         "is_spectator": is_spectator_conn,
+                        "is_dm": is_dm_conn,
                     },
                 )
                 await session_hub.broadcast(

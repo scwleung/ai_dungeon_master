@@ -124,11 +124,11 @@ export const api = {
       request<Record<string, unknown>>('GET', `/api/campaigns/${id}/world-state`),
     updateWorldState: (id: number, state: Record<string, unknown>) =>
       request<Record<string, unknown>>('PUT', `/api/campaigns/${id}/world-state`, state),
-    generateTrap: (id: number, body: { cr: number; location: string }) =>
+    generateTrap: (id: string, body: { cr: number; location: string }) =>
       request<unknown>('POST', `/api/campaigns/${id}/trap`, body),
-    generatePuzzle: (id: number, body: { difficulty: string; theme: string }) =>
+    generatePuzzle: (id: string, body: { difficulty: string; theme: string }) =>
       request<unknown>('POST', `/api/campaigns/${id}/puzzle`, body),
-    generateShop: (id: number, body: { settlement_size: string; shop_type: string }) =>
+    generateShop: (id: string, body: { settlement_size: string; shop_type: string }) =>
       request<unknown>('POST', `/api/campaigns/${id}/shop`, body),
   },
 
@@ -150,8 +150,8 @@ export const api = {
     updateNotes: (sessionId: string, notes: string) =>
       request<{ session_id: string; notes: string }>('PUT', `/api/campaigns/sessions/${sessionId}/notes`, { notes }),
     /** Generate a recap for a session. */
-    generateRecap: (sessionId: number) =>
-      request<unknown>('POST', `/sessions/${sessionId}/recap`),
+    generateRecap: (sessionId: string) =>
+      request<unknown>('POST', `/api/campaigns/sessions/${sessionId}/recap`),
   },
 
   /** Character CRUD operations scoped to a campaign. */

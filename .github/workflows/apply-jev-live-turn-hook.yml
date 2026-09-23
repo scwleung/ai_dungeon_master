@@ -1,0 +1,42 @@
+name: Apply Jev live-turn hook
+on:
+  push:
+    branches: [chatgpt/jev-live-turn-hook]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch live-turn hook
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('backend/main.py')
+          s = p.read_text()
+          imp = 'from backend.services.game_state import PendingRoll, game_state_manager\n'
+          new_imp = imp + 'from backend.services.jev_live_shadow import (\n    finish_shadow_evaluation,\n    start_shadow_evaluation,\n)\n'
+          if 'from backend.services.jev_live_shadow import (' not in s:
+              assert imp in s
+              s = s.replace(imp, new_imp, 1)
+          marker = '''                    # Stream the DM response\n                    full_response_parts: list[str] = []\n'''
+          hook = '''                    # Start Jev beside Claude. This is shadow telemetry only:\n                    # its result is never consulted by the gameplay path.\n                    shadow_task = start_shadow_evaluation(\n                        action_text=action_text,\n                        player_name=player_name,\n                        campaign=campaign,\n                        characters=char_list,\n                        history=history,\n                        in_combat=bool(game_state_manager._combat.get(session_id)),\n                    )\n\n                    # Stream the DM response\n                    full_response_parts: list[str] = []\n'''
+          if 'shadow_task = start_shadow_evaluation(' not in s:
+              assert marker in s
+              s = s.replace(marker, hook, 1)
+          error_marker = '''                    except Exception as exc:\n                        await session_hub.send_to_socket(\n                            ws,\n                            {"type": "error", "message": f"DM brain error: {exc}"},\n                        )\n                        continue\n\n                    # Save DM response to DB\n                    full_response = "".join(full_response_parts)\n'''
+          error_hook = '''                    except Exception as exc:\n                        await finish_shadow_evaluation(\n                            shadow_task,\n                            session_id=session_id,\n                            campaign_id=campaign_id,\n                            player_id=player_id,\n                            player_name=player_name,\n                            action_text=action_text,\n                            claude_response=None,\n                        )\n                        await session_hub.send_to_socket(\n                            ws,\n                            {"type": "error", "message": f"DM brain error: {exc}"},\n                        )\n                        continue\n\n                    # Save DM response to DB\n                    full_response = "".join(full_response_parts)\n                    await finish_shadow_evaluation(\n                        shadow_task,\n                        session_id=session_id,\n                        campaign_id=campaign_id,\n                        player_id=player_id,\n                        player_name=player_name,\n                        action_text=action_text,\n                        claude_response=full_response or None,\n                    )\n'''
+          if 'claude_response=full_response or None' not in s:
+              assert error_marker in s
+              s = s.replace(error_marker, error_hook, 1)
+          p.write_text(s)
+          PY
+      - name: Commit hook
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add backend/main.py
+          git diff --cached --quiet || git commit -m "Wire Jev shadow telemetry into live turns"
+          git push

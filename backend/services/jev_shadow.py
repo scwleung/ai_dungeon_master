@@ -50,9 +50,12 @@ class ShadowEvaluation:
 def enabled() -> bool: return bool(os.getenv("TYPESAFE_API_KEY"))
 
 def _json(value: Any, default: Any) -> Any:
-    if not isinstance(value, str): return value if value is not None else default
-    try: return json.loads(value)
-    except (json.JSONDecodeError, TypeError): return default
+    if not isinstance(value, str):
+        return value if value is not None else default
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return default
 
 def build_state(*, action_text: str, player_name: str, campaign: Any, characters: list[Any], history: list[dict[str, Any]], in_combat: bool) -> dict[str, Any]:
     chars = [{
@@ -72,7 +75,8 @@ def build_state(*, action_text: str, player_name: str, campaign: Any, characters
     }
 
 async def evaluate_action(**state_kwargs: Any) -> ShadowEvaluation | None:
-    if not enabled(): return None
+    if not enabled():
+        return None
     try:
         from typesafe_sdk import AsyncTypeSafeClient, Choice, Noul
     except ImportError:

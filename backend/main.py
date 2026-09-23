@@ -100,6 +100,10 @@ from backend.routers import combat as combat_router
 from backend.services.character_service import update_character_in_db
 from backend.services.dm_brain import DungeonMaster
 from backend.services.game_state import PendingRoll, game_state_manager
+from backend.services.jev_live_shadow import (
+    finish_shadow_evaluation,
+    start_shadow_evaluation,
+)
 from backend.startup import run_migrations
 from backend.ws.session_hub import session_hub
 
@@ -1132,6 +1136,17 @@ async def websocket_endpoint(
                         session_id, "user", action_text, player_name=player_name
                     )
 
+                    # Start Jev beside Claude. This is shadow telemetry only:
+                    # its result is never consulted by the gameplay path.
+                    shadow_task = start_shadow_evaluation(
+                        action_text=action_text,
+                        player_name=player_name,
+                        campaign=campaign,
+                        characters=char_list,
+                        history=history,
+                        in_combat=bool(game_state_manager._combat.get(session_id)),
+                    )
+
                     # Stream the DM response
                     full_response_parts: list[str] = []
 
@@ -1150,6 +1165,15 @@ async def websocket_endpoint(
                     try:
                         await session_hub.broadcast_dm_stream(session_id, _text_gen())
                     except Exception as exc:
+                        await finish_shadow_evaluation(
+                            shadow_task,
+                            session_id=session_id,
+                            campaign_id=campaign_id,
+                            player_id=player_id,
+                            player_name=player_name,
+                            action_text=action_text,
+                            claude_response=None,
+                        )
                         await session_hub.send_to_socket(
                             ws,
                             {"type": "error", "message": f"DM brain error: {exc}"},
@@ -1158,6 +1182,15 @@ async def websocket_endpoint(
 
                     # Save DM response to DB
                     full_response = "".join(full_response_parts)
+                    await finish_shadow_evaluation(
+                        shadow_task,
+                        session_id=session_id,
+                        campaign_id=campaign_id,
+                        player_id=player_id,
+                        player_name=player_name,
+                        action_text=action_text,
+                        claude_response=full_response or None,
+                    )
                     if full_response:
                         await _save_message_to_db(
                             session_id, "assistant", full_response, player_name=None

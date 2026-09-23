@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api/client'
 
-interface TrapGeneratorProps { campaignId: string }
+interface TrapGeneratorProps { campaignId: string | number }
 type TabId = 'trap' | 'puzzle' | 'shop'
 type Result = Record<string, unknown>
 
@@ -20,10 +20,11 @@ export function TrapGenerator({ campaignId }: TrapGeneratorProps) {
   async function generate(e: React.FormEvent) {
     e.preventDefault(); setLoading(true); setError(null); setResult(null)
     try {
+      const id = String(campaignId)
       let response: unknown
-      if (activeTab === 'trap') response = await api.campaigns.generateTrap(campaignId, { cr: parseFloat(trapCR), location: trapLocation })
-      else if (activeTab === 'puzzle') response = await api.campaigns.generatePuzzle(campaignId, { difficulty: puzzleDifficulty, theme: puzzleTheme })
-      else response = await api.campaigns.generateShop(campaignId, { settlement_size: shopSize, shop_type: shopType })
+      if (activeTab === 'trap') response = await api.campaigns.generateTrap(id, { cr: parseFloat(trapCR), location: trapLocation })
+      else if (activeTab === 'puzzle') response = await api.campaigns.generatePuzzle(id, { difficulty: puzzleDifficulty, theme: puzzleTheme })
+      else response = await api.campaigns.generateShop(id, { settlement_size: shopSize, shop_type: shopType })
       setResult(response as Result)
     } catch (err) { setError(err instanceof Error ? err.message : `Failed to generate ${activeTab}.`) }
     finally { setLoading(false) }

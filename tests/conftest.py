@@ -1,4 +1,7 @@
 import os
+from unittest.mock import patch
+
+import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
@@ -10,6 +13,24 @@ from backend.database import Base, get_db
 from backend.main import app
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
+
+
+@pytest.fixture(autouse=True)
+def isolate_pending_roll_ownership_from_disconnect_cleanup(request):
+    """Keep the ownership test focused on manual-roll authorization.
+
+    The production WebSocket now tears down process-local session state when the
+    last socket disconnects.  The ownership test inspects its pending roll after
+    closing its only socket, so without isolation it observes the lifecycle
+    cleanup rather than the authorization behavior it is intended to test.
+    Session cleanup itself has dedicated coverage in TestSessionLifecycleCleanup.
+    """
+    if request.node.name != "test_wrong_player_cannot_resolve_pending_roll":
+        yield
+        return
+
+    with patch("backend.main._cleanup_inactive_session_state"):
+        yield
 
 
 @pytest_asyncio.fixture

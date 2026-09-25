@@ -1269,9 +1269,39 @@ async def websocket_endpoint(
             # ------------------------------------------------------------
             elif msg_type == "manual_roll":
                 roll_request_id = data.get("roll_request_id", "")
-                total = int(data.get("total", 0))
-                values = data.get("values", [total])
-                modifier = int(data.get("modifier", 0))
+                raw_values = data.get("values", [])
+                declared_mod = int(data.get("modifier", 0))
+
+                # Validate all submitted values are numeric.
+                int_values = []
+                for v in raw_values:
+                    try:
+                        int_values.append(int(v))
+                    except (TypeError, ValueError):
+                        pass
+
+                # Guard against empty list (all([]) == True bypasses all() check).
+                pending_roll_for_val = (
+                    game_state_manager.get_pending_roll(session_id, roll_request_id)
+                    if roll_request_id else None
+                )
+                die_sides = 20
+                if pending_roll_for_val:
+                    import re as _re_mr
+                    m = _re_mr.match(r"^\d+d(\d+)", pending_roll_for_val.dice.lower())
+                    if m:
+                        die_sides = int(m.group(1))
+
+                if not int_values or not all(1 <= v <= die_sides for v in int_values):
+                    await session_hub.send_to_socket(
+                        ws,
+                        {"type": "error", "message": "Invalid dice values."},
+                    )
+                    continue
+
+                modifier = declared_mod
+                values = int_values
+                total = sum(values) + modifier
 
                 result_payload = {
                     "type": "dice_result",
@@ -1310,9 +1340,37 @@ async def websocket_endpoint(
             # ------------------------------------------------------------
             elif msg_type == "dice_result":
                 roll_request_id = data.get("roll_request_id", "")
-                total = int(data.get("total", 0))
-                values = data.get("values", [total])
-                modifier = int(data.get("modifier", 0))
+                raw_values = data.get("values", [])
+                declared_mod = int(data.get("modifier", 0))
+
+                int_values = []
+                for v in raw_values:
+                    try:
+                        int_values.append(int(v))
+                    except (TypeError, ValueError):
+                        pass
+
+                pending_roll_for_val = (
+                    game_state_manager.get_pending_roll(session_id, roll_request_id)
+                    if roll_request_id else None
+                )
+                die_sides = 20
+                if pending_roll_for_val:
+                    import re as _re_dr
+                    m = _re_dr.match(r"^\d+d(\d+)", pending_roll_for_val.dice.lower())
+                    if m:
+                        die_sides = int(m.group(1))
+
+                if not int_values or not all(1 <= v <= die_sides for v in int_values):
+                    await session_hub.send_to_socket(
+                        ws,
+                        {"type": "error", "message": "Invalid dice values."},
+                    )
+                    continue
+
+                modifier = declared_mod
+                values = int_values
+                total = sum(values) + modifier
 
                 # Broadcast to all players in room
                 broadcast_payload = {
@@ -1437,6 +1495,8 @@ async def websocket_endpoint(
                     )
 
             elif msg_type == "ready_response":
+                if is_spectator_conn:
+                    continue
                 await session_hub.broadcast(
                     session_id,
                     {

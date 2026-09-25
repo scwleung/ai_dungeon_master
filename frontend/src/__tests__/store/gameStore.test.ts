@@ -159,14 +159,14 @@ describe('gameStore', () => {
   describe('loadCampaigns', () => {
     it('populates campaigns from API', async () => {
       const campaign = makeCampaign()
-      vi.mocked(api.campaigns.list).mockResolvedValue({ data: [campaign] })
+      vi.mocked(api.campaigns.list).mockResolvedValue([campaign])
       await useGameStore.getState().loadCampaigns()
       expect(useGameStore.getState().campaigns).toHaveLength(1)
       expect(useGameStore.getState().campaigns[0]).toEqual(campaign)
     })
 
     it('calls api.campaigns.list once', async () => {
-      vi.mocked(api.campaigns.list).mockResolvedValue({ data: [] })
+      vi.mocked(api.campaigns.list).mockResolvedValue([])
       await useGameStore.getState().loadCampaigns()
       expect(api.campaigns.list).toHaveBeenCalledTimes(1)
     })
@@ -175,7 +175,7 @@ describe('gameStore', () => {
   describe('createCampaign', () => {
     it('appends new campaign to campaigns and returns it', async () => {
       const newCampaign = makeCampaign({ id: 'new-camp', name: 'New World' })
-      vi.mocked(api.campaigns.create).mockResolvedValue({ data: newCampaign })
+      vi.mocked(api.campaigns.create).mockResolvedValue(newCampaign)
       const result = await useGameStore.getState().createCampaign({
         name: 'New World',
         ruleset: 'dnd5e',
@@ -189,7 +189,7 @@ describe('gameStore', () => {
       const existing = makeCampaign({ id: 'existing' })
       useGameStore.setState({ campaigns: [existing] })
       const newCampaign = makeCampaign({ id: 'new-camp' })
-      vi.mocked(api.campaigns.create).mockResolvedValue({ data: newCampaign })
+      vi.mocked(api.campaigns.create).mockResolvedValue(newCampaign)
       await useGameStore.getState().createCampaign({
         name: 'new-camp',
         ruleset: 'freeform',

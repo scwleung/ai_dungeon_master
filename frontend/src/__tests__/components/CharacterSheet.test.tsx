@@ -5,8 +5,13 @@ import type { Character } from '../../types'
 
 // Mock the store — CharacterSheet calls both onUpdate prop AND updateCharacter from store
 const mockUpdateCharacter = vi.fn()
+const mockAddToast = vi.fn()
 vi.mock('../../store/gameStore', () => ({
-  useGameStore: () => ({ updateCharacter: mockUpdateCharacter }),
+  useGameStore: () => ({
+    updateCharacter: mockUpdateCharacter,
+    settings: { playerName: '' },
+    addToast: mockAddToast,
+  }),
 }))
 
 import { CharacterSheet } from '../../components/CharacterSheet'

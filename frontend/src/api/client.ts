@@ -70,10 +70,10 @@ export const api = {
   /** Campaign CRUD operations. */
   campaigns: {
     /** Fetch all campaigns for the authenticated user. */
-    list: () => request<{ data: Campaign[] }>('GET', '/api/campaigns'),
+    list: () => request<Campaign[]>('GET', '/api/campaigns'),
     /** Create a new campaign and return the persisted record. */
     create: (data: { name: string; ruleset: string; description: string }) =>
-      request<{ data: Campaign }>('POST', '/api/campaigns', data),
+      request<Campaign>('POST', '/api/campaigns', data),
     /** Permanently delete a campaign by ID. */
     delete: (id: string) => request<void>('DELETE', `/api/campaigns/${id}`),
     /** Export a full campaign bundle as JSON (requires access code). */

@@ -11,6 +11,10 @@ const mockSetActiveCampaign = vi.fn()
 const mockSetView = vi.fn()
 const mockLoadCharacters = vi.fn()
 const mockLoadSessions = vi.fn()
+const mockLoadCampaigns = vi.fn().mockResolvedValue(undefined)
+const mockStoreCampaignToken = vi.fn()
+
+const mockLoadQuests = vi.fn().mockResolvedValue(undefined)
 
 vi.mock('../../store/gameStore', () => ({
   useGameStore: () => ({
@@ -20,6 +24,15 @@ vi.mock('../../store/gameStore', () => ({
     setView: mockSetView,
     loadCharacters: mockLoadCharacters,
     loadSessions: mockLoadSessions,
+    loadCampaigns: mockLoadCampaigns,
+    storeCampaignToken: mockStoreCampaignToken,
+    campaignTokens: {},
+    loadQuests: mockLoadQuests,
+    activeCampaign: null,
+    characters: [],
+    sessions: [],
+    startSession: vi.fn(),
+    setActiveSession: vi.fn(),
   }),
 }))
 
@@ -59,6 +72,8 @@ describe('CampaignList', () => {
     mockLoadCharacters.mockReset()
     mockLoadSessions.mockReset()
     vi.clearAllMocks()
+    mockLoadCampaigns.mockResolvedValue(undefined)
+    mockLoadQuests.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -68,21 +83,22 @@ describe('CampaignList', () => {
   // ── Empty state ─────────────────────────────────────────────────────────────
 
   describe('empty state', () => {
-    it('shows "No Campaigns Yet" when there are no campaigns', () => {
+    it('shows "No Campaigns Yet" when there are no campaigns', async () => {
       mockCampaigns = []
       render(<CampaignList />)
-      expect(screen.getByText('No Campaigns Yet')).toBeInTheDocument()
+      expect(await screen.findByText('No Campaigns Yet')).toBeInTheDocument()
     })
 
-    it('shows the "Create First Campaign" button when there are no campaigns', () => {
+    it('shows the "Create First Campaign" button when there are no campaigns', async () => {
       mockCampaigns = []
       render(<CampaignList />)
-      expect(screen.getByRole('button', { name: /create first campaign/i })).toBeInTheDocument()
+      expect(await screen.findByRole('button', { name: /create first campaign/i })).toBeInTheDocument()
     })
 
-    it('does NOT show "No Campaigns Yet" when campaigns exist', () => {
+    it('does NOT show "No Campaigns Yet" when campaigns exist', async () => {
       mockCampaigns = [makeCampaign()]
       render(<CampaignList />)
+      await screen.findByText('The Lost Temple')
       expect(screen.queryByText('No Campaigns Yet')).not.toBeInTheDocument()
     })
   })
@@ -90,58 +106,59 @@ describe('CampaignList', () => {
   // ── Campaign cards ──────────────────────────────────────────────────────────
 
   describe('campaign cards', () => {
-    it('renders the campaign name', () => {
+    it('renders the campaign name', async () => {
       mockCampaigns = [makeCampaign({ name: 'Dragon Keep' })]
       render(<CampaignList />)
-      expect(screen.getByText('Dragon Keep')).toBeInTheDocument()
+      expect(await screen.findByText('Dragon Keep')).toBeInTheDocument()
     })
 
-    it('renders a D&D 5e ruleset badge', () => {
+    it('renders a D&D 5e ruleset badge', async () => {
       mockCampaigns = [makeCampaign({ ruleset: 'dnd5e' })]
       render(<CampaignList />)
-      expect(screen.getByText('D&D 5e')).toBeInTheDocument()
+      expect(await screen.findByText('D&D 5e')).toBeInTheDocument()
     })
 
-    it('renders a Pathfinder 2e ruleset badge', () => {
+    it('renders a Pathfinder 2e ruleset badge', async () => {
       mockCampaigns = [makeCampaign({ ruleset: 'pathfinder2e' })]
       render(<CampaignList />)
-      expect(screen.getByText('PF2e')).toBeInTheDocument()
+      expect(await screen.findByText('PF2e')).toBeInTheDocument()
     })
 
-    it('renders a Freeform ruleset badge', () => {
+    it('renders a Freeform ruleset badge', async () => {
       mockCampaigns = [makeCampaign({ ruleset: 'freeform' })]
       render(<CampaignList />)
-      expect(screen.getByText('Freeform')).toBeInTheDocument()
+      expect(await screen.findByText('Freeform')).toBeInTheDocument()
     })
 
-    it('renders the description when present', () => {
+    it('renders the description when present', async () => {
       mockCampaigns = [makeCampaign({ description: 'An epic tale of adventure.' })]
       render(<CampaignList />)
-      expect(screen.getByText('An epic tale of adventure.')).toBeInTheDocument()
+      expect(await screen.findByText('An epic tale of adventure.')).toBeInTheDocument()
     })
 
-    it('does not render a description element when description is empty', () => {
+    it('does not render a description element when description is empty', async () => {
       mockCampaigns = [makeCampaign({ description: '' })]
       render(<CampaignList />)
+      await screen.findByText('The Lost Temple')
       expect(screen.queryByText(/epic tale/i)).not.toBeInTheDocument()
     })
 
-    it('renders all campaigns when multiple exist', () => {
+    it('renders all campaigns when multiple exist', async () => {
       mockCampaigns = [
         makeCampaign({ id: 'a', name: 'Campaign Alpha' }),
         makeCampaign({ id: 'b', name: 'Campaign Beta' }),
         makeCampaign({ id: 'c', name: 'Campaign Gamma' }),
       ]
       render(<CampaignList />)
-      expect(screen.getByText('Campaign Alpha')).toBeInTheDocument()
+      expect(await screen.findByText('Campaign Alpha')).toBeInTheDocument()
       expect(screen.getByText('Campaign Beta')).toBeInTheDocument()
       expect(screen.getByText('Campaign Gamma')).toBeInTheDocument()
     })
 
-    it('renders the session count', () => {
+    it('renders the session count', async () => {
       mockCampaigns = [makeCampaign({ session_count: 5 })]
       render(<CampaignList />)
-      expect(screen.getByText(/5 sessions/i)).toBeInTheDocument()
+      expect(await screen.findByText(/5 sessions/i)).toBeInTheDocument()
     })
   })
 
@@ -152,7 +169,7 @@ describe('CampaignList', () => {
       mockCampaigns = []
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByRole('button', { name: /\+ new campaign/i }))
+      await user.click(await screen.findByRole('button', { name: /\+ new campaign/i }))
       expect(screen.getByTestId('campaign-setup-stub')).toBeInTheDocument()
     })
 
@@ -160,7 +177,7 @@ describe('CampaignList', () => {
       mockCampaigns = []
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByRole('button', { name: /\+ new campaign/i }))
+      await user.click(await screen.findByRole('button', { name: /\+ new campaign/i }))
       await user.click(screen.getByRole('button', { name: /close setup/i }))
       expect(screen.queryByTestId('campaign-setup-stub')).not.toBeInTheDocument()
     })
@@ -179,7 +196,7 @@ describe('CampaignList', () => {
       mockCampaigns = [campaign]
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByRole('button', { name: /continue/i }))
+      await user.click(await screen.findByRole('button', { name: /continue/i }))
       expect(mockSetActiveCampaign).toHaveBeenCalledWith(campaign)
     })
 
@@ -187,7 +204,7 @@ describe('CampaignList', () => {
       mockCampaigns = [makeCampaign()]
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByRole('button', { name: /continue/i }))
+      await user.click(await screen.findByRole('button', { name: /continue/i }))
       await waitFor(() => expect(mockSetView).toHaveBeenCalledWith('campaign_detail'))
     })
 
@@ -195,7 +212,7 @@ describe('CampaignList', () => {
       mockCampaigns = [makeCampaign({ id: 'camp-xyz' })]
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByRole('button', { name: /continue/i }))
+      await user.click(await screen.findByRole('button', { name: /continue/i }))
       await waitFor(() => expect(mockLoadCharacters).toHaveBeenCalledWith('camp-xyz'))
     })
 
@@ -203,7 +220,7 @@ describe('CampaignList', () => {
       mockCampaigns = [makeCampaign({ id: 'camp-xyz' })]
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByRole('button', { name: /continue/i }))
+      await user.click(await screen.findByRole('button', { name: /continue/i }))
       await waitFor(() => expect(mockLoadSessions).toHaveBeenCalledWith('camp-xyz'))
     })
   })
@@ -215,7 +232,7 @@ describe('CampaignList', () => {
       mockCampaigns = [makeCampaign()]
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByTitle(/delete campaign/i))
+      await user.click(await screen.findByTitle(/delete campaign/i))
       expect(screen.getByText('Delete?')).toBeInTheDocument()
     })
 
@@ -223,7 +240,7 @@ describe('CampaignList', () => {
       mockCampaigns = [makeCampaign()]
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByTitle(/delete campaign/i))
+      await user.click(await screen.findByTitle(/delete campaign/i))
       expect(screen.getByRole('button', { name: /^yes$/i })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /^no$/i })).toBeInTheDocument()
     })
@@ -232,7 +249,7 @@ describe('CampaignList', () => {
       mockCampaigns = [makeCampaign()]
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByTitle(/delete campaign/i))
+      await user.click(await screen.findByTitle(/delete campaign/i))
       await user.click(screen.getByRole('button', { name: /^no$/i }))
       expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
     })
@@ -242,7 +259,7 @@ describe('CampaignList', () => {
       mockCampaigns = [makeCampaign({ id: 'camp-to-delete' })]
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByTitle(/delete campaign/i))
+      await user.click(await screen.findByTitle(/delete campaign/i))
       await user.click(screen.getByRole('button', { name: /^yes$/i }))
       await waitFor(() => expect(mockDeleteCampaign).toHaveBeenCalledWith('camp-to-delete'))
     })
@@ -251,7 +268,7 @@ describe('CampaignList', () => {
       mockCampaigns = [makeCampaign()]
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByTitle(/delete campaign/i))
+      await user.click(await screen.findByTitle(/delete campaign/i))
       await user.click(screen.getByRole('button', { name: /^no$/i }))
       expect(mockDeleteCampaign).not.toHaveBeenCalled()
     })
@@ -261,7 +278,7 @@ describe('CampaignList', () => {
       mockCampaigns = [makeCampaign()]
       const user = userEvent.setup()
       render(<CampaignList />)
-      await user.click(screen.getByTitle(/delete campaign/i))
+      await user.click(await screen.findByTitle(/delete campaign/i))
       await user.click(screen.getByRole('button', { name: /^yes$/i }))
       expect(await screen.findByText('Network failure')).toBeInTheDocument()
     })

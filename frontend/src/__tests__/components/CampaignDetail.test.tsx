@@ -22,6 +22,9 @@ vi.mock('../../store/gameStore', () => ({
     setActiveSession: mockSetActiveSession,
     setView: mockSetView,
     loadSessions: mockLoadSessions,
+    campaignTokens: {},
+    storeCampaignToken: vi.fn(),
+    loadQuests: vi.fn().mockResolvedValue(undefined),
   }),
 }))
 

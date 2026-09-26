@@ -186,13 +186,7 @@ class CampaignCreate(BaseModel):
 
 
 class CampaignResponse(BaseModel):
-    """API response schema for a campaign.
-
-    ``world_state`` is always returned as a parsed ``dict``; ``session_count``
-    is derived from the length of the ``sessions`` relationship at read time.
-    ``access_code`` is included so clients can store it for subsequent
-    authenticated requests.
-    """
+    """API response schema for a campaign (GET endpoints — no access_code)."""
 
     id: str
     name: str
@@ -200,7 +194,6 @@ class CampaignResponse(BaseModel):
     description: str
     created_at: datetime
     world_state: dict
-    access_code: str
     session_count: int = 0
 
     model_config = {"from_attributes": True}
@@ -208,8 +201,7 @@ class CampaignResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def parse_world_state(cls, values):
-        """Deserialise ``world_state`` and compute ``session_count`` from an ORM object or dict."""
-        # Handle SQLAlchemy ORM object
+        """Deserialise ``world_state`` from an ORM object or dict."""
         if hasattr(values, "__dict__"):
             obj = values
             world_state = obj.world_state
@@ -225,10 +217,8 @@ class CampaignResponse(BaseModel):
                 "description": obj.description,
                 "created_at": obj.created_at,
                 "world_state": world_state,
-                "access_code": obj.access_code,
-                "session_count": 0,  # overridden by router via scalar subquery
+                "session_count": 0,
             }
-        # Handle dict
         if isinstance(values, dict):
             ws = values.get("world_state", "{}")
             if isinstance(ws, str):
@@ -237,6 +227,20 @@ class CampaignResponse(BaseModel):
                 except (json.JSONDecodeError, TypeError):
                     values["world_state"] = {}
         return values
+
+
+class CampaignCreateResponse(CampaignResponse):
+    """API response for POST /campaigns and POST /campaigns/import — includes access_code."""
+
+    access_code: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_world_state(cls, values):
+        result = super().parse_world_state(values)
+        if isinstance(result, dict) and "access_code" not in result and hasattr(values, "access_code"):
+            result["access_code"] = values.access_code
+        return result
 
 
 class NarrativeMessage(BaseModel):

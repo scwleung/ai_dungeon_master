@@ -92,6 +92,7 @@ from backend.database import get_db
 from backend.models.campaign import (
     Campaign,
     CampaignCreate,
+    CampaignCreateResponse,
     CampaignResponse,
     Session as GameSession,
     SessionMessage,
@@ -134,8 +135,15 @@ def _msg_count_sq(session_id_col) -> "ColumnElement":
 
 
 def _campaign_to_response(campaign: Campaign, session_count: int = 0) -> CampaignResponse:
-    """Convert a Campaign ORM object to a CampaignResponse Pydantic model."""
+    """Convert a Campaign ORM object to a CampaignResponse (no access_code)."""
     resp = CampaignResponse.model_validate(campaign)
+    resp.session_count = session_count
+    return resp
+
+
+def _campaign_to_create_response(campaign: Campaign, session_count: int = 0) -> CampaignCreateResponse:
+    """Convert a Campaign ORM object to a CampaignCreateResponse (includes access_code)."""
+    resp = CampaignCreateResponse.model_validate(campaign)
     resp.session_count = session_count
     return resp
 
@@ -156,7 +164,7 @@ async def list_campaigns(response: Response, db: AsyncSession = Depends(get_db))
     return [_campaign_to_response(c, cnt) for c, cnt in result.all()]
 
 
-@router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=CampaignCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_campaign(
     payload: CampaignCreate,
     db: AsyncSession = Depends(get_db),
@@ -179,7 +187,7 @@ async def create_campaign(
     )
     db.add(campaign)
     await db.flush()
-    return _campaign_to_response(campaign, session_count=0)
+    return _campaign_to_create_response(campaign, session_count=0)
 
 
 @router.get("/{campaign_id}", response_model=CampaignResponse)
@@ -628,7 +636,7 @@ class CampaignImportPayload(BaseModel):
     sessions: list[dict] = []
 
 
-@router.post("/import")
+@router.post("/import", response_model=CampaignCreateResponse, status_code=201)
 async def import_campaign(
     payload: CampaignImportPayload,
     db: AsyncSession = Depends(get_db),
@@ -673,14 +681,7 @@ async def import_campaign(
 
     await db.commit()
     await db.refresh(new_campaign)
-    return {
-        "id": new_campaign.id,
-        "name": new_campaign.name,
-        "ruleset": new_campaign.ruleset,
-        "description": new_campaign.description,
-        "access_code": new_campaign.access_code,
-        "created_at": new_campaign.created_at.isoformat(),
-    }
+    return _campaign_to_create_response(new_campaign, session_count=0)
 
 
 @router.post("/{campaign_id}/rotate-access-code")
@@ -946,12 +947,8 @@ async def generate_loot_endpoint(
 async def generate_trap(
     campaign_id: str,
     body: dict,
-    db: AsyncSession = Depends(get_db),
-    _campaign: Campaign = Depends(require_campaign_access),
+    campaign: Campaign = Depends(require_campaign_access),
 ):
-    campaign = await db.get(Campaign, campaign_id)
-    if not campaign:
-        raise HTTPException(status_code=404)
     from backend.services.dm_brain import DungeonMaster
     dm = DungeonMaster(campaign_id=campaign_id, ruleset=campaign.ruleset)
     result = await dm.generate_trap(
@@ -965,12 +962,8 @@ async def generate_trap(
 async def generate_puzzle(
     campaign_id: str,
     body: dict,
-    db: AsyncSession = Depends(get_db),
-    _campaign: Campaign = Depends(require_campaign_access),
+    campaign: Campaign = Depends(require_campaign_access),
 ):
-    campaign = await db.get(Campaign, campaign_id)
-    if not campaign:
-        raise HTTPException(status_code=404)
     from backend.services.dm_brain import DungeonMaster
     dm = DungeonMaster(campaign_id=campaign_id, ruleset=campaign.ruleset)
     result = await dm.generate_puzzle(
@@ -984,12 +977,8 @@ async def generate_puzzle(
 async def generate_shop(
     campaign_id: str,
     body: dict,
-    db: AsyncSession = Depends(get_db),
-    _campaign: Campaign = Depends(require_campaign_access),
+    campaign: Campaign = Depends(require_campaign_access),
 ):
-    campaign = await db.get(Campaign, campaign_id)
-    if not campaign:
-        raise HTTPException(status_code=404)
     from backend.services.dm_brain import DungeonMaster
     dm = DungeonMaster(campaign_id=campaign_id, ruleset=campaign.ruleset)
     result = await dm.generate_shop(
